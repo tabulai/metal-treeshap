@@ -1,0 +1,11 @@
+{
+ "case": "deep31-comb",
+ "kind": "raw_paths",
+ "num_groups": 1,
+ "num_features": 31,
+ "intercepts": [
+  0.5
+ ],
+ "tolerance": 0.001,
+ "note": "32-element cooperative path (root + 31 distinct features); expected = fp64 CPU reference; Phase-1 Metal kernel must match. Covers lane-31 boundary, partial exits, 1e-4 covers, NaN default routing."
+}

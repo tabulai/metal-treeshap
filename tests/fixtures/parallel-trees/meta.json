@@ -1,0 +1,9 @@
+{
+ "case": "parallel-trees",
+ "kind": "xgboost_model",
+ "num_groups": 3,
+ "num_features": 10,
+ "xgboost_version": "3.1.2",
+ "tolerance": 0.001,
+ "note": "expected = pred_contribs; layout [rows, groups*(features+1)]"
+}

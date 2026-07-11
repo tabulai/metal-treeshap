@@ -1,0 +1,17 @@
+metal-treeshap
+Copyright 2026 metal-treeshap contributors
+
+This project is a port of GPUTreeShap to Apple GPUs (Metal) and retains its algorithmic
+structure and public-API semantics.
+
+GPUTreeShap
+Copyright (c) 2020-2026, NVIDIA CORPORATION.
+Licensed under the Apache License, Version 2.0.
+https://github.com/rapidsai/gputreeshap
+
+Algorithm: Rory Mitchell, Eibe Frank, Geoffrey Holmes.
+"GPUTreeShap: Massively Parallel Exact Calculation of SHAP Scores for Tree Ensembles."
+PeerJ Computer Science 8:e880 (2022). arXiv:2010.13972.
+
+TreeSHAP: Scott M. Lundberg, Gabriel G. Erion, Su-In Lee.
+"Consistent Individualized Feature Attribution for Tree Ensembles." arXiv:1802.03888.

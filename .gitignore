@@ -1,0 +1,26 @@
+# build products
+build/
+build-*/
+cmake-build-*/
+*.air
+*.metallib
+!tests/fixtures/**/*.metallib
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store
+
+# editors
+.vscode/
+.idea/
+
+# vendored dependencies (fetch per README; keep the tree lean)
+third_party/metal-cpp/
+
+# scratch
+_to_delete/
+*.tmp
