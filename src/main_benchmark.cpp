@@ -55,6 +55,7 @@ struct Options {
   size_t row_limit = 0;
   uint32_t rows_per_simdgroup = 256;
   uint32_t threads_per_threadgroup = 256;
+  size_t atomic_tile_rows = 0;
   std::string accumulation = "atomic";
   std::string storage = "shared";
   size_t deterministic_scratch_mib = 256;
@@ -135,6 +136,7 @@ void Usage(const char* program) {
       << "  --row-limit N               benchmark first N rows (0 means all)\n"
       << "  --rows-per-simdgroup N      row-bank size (default 256)\n"
       << "  --threads-per-threadgroup N 32,64,128,256 (default 256)\n"
+      << "  --atomic-tile-rows N        rows/atomic dispatch; 0 means full (default 0)\n"
       << "  --accumulation MODE         atomic|simdgroup|deterministic (default atomic)\n"
       << "  --model-storage MODE        shared|private (default shared)\n"
       << "  --deterministic-scratch-mib N  scratch budget (default 256)\n"
@@ -183,6 +185,11 @@ Options ParseArgs(int argc, char** argv) {
     } else if (arg == "--threads-per-threadgroup") {
       options.threads_per_threadgroup =
           csv::ParseU32(need_value(i, arg), "threads_per_threadgroup");
+    } else if (arg == "--atomic-tile-rows") {
+      options.atomic_tile_rows = csv::ParseSize(need_value(i, arg), "atomic_tile_rows");
+      if (options.atomic_tile_rows > std::numeric_limits<uint32_t>::max()) {
+        throw std::invalid_argument("atomic_tile_rows does not fit uint32");
+      }
     } else if (arg == "--accumulation") {
       options.accumulation = need_value(i, arg);
       if (options.accumulation != "atomic" && options.accumulation != "simdgroup" &&
@@ -351,6 +358,7 @@ int main(int argc, char** argv) {
     const double pipeline_s = Seconds(pipeline_start);
     explainer.set_rows_per_simdgroup(options.rows_per_simdgroup);
     explainer.set_threads_per_threadgroup(options.threads_per_threadgroup);
+    explainer.set_atomic_tile_rows(options.atomic_tile_rows);
     explainer.set_deterministic_scratch_budget_bytes(csv::CheckedMul(
         options.deterministic_scratch_mib, size_t{1024 * 1024}, "deterministic scratch"));
     const AccumulationMode accumulation =
@@ -391,7 +399,7 @@ int main(int argc, char** argv) {
 
     std::vector<double> wall, api_total, gpu, upload, encode;
     std::vector<size_t> active_scratch_bytes, retained_scratch_bytes, active_tile_rows,
-        active_tile_counts;
+        active_tile_counts, atomic_tile_rows, atomic_tile_counts;
     std::vector<size_t> x_zero_copy;
     std::vector<std::string> hashes;
     wall.reserve(options.iterations);
@@ -403,6 +411,8 @@ int main(int argc, char** argv) {
     retained_scratch_bytes.reserve(options.iterations);
     active_tile_rows.reserve(options.iterations);
     active_tile_counts.reserve(options.iterations);
+    atomic_tile_rows.reserve(options.iterations);
+    atomic_tile_counts.reserve(options.iterations);
     x_zero_copy.reserve(options.iterations);
     hashes.reserve(options.iterations);
     Differences repeatability;
@@ -420,6 +430,8 @@ int main(int argc, char** argv) {
       retained_scratch_bytes.push_back(timing.deterministic_scratch_capacity_bytes);
       active_tile_rows.push_back(timing.deterministic_tile_rows);
       active_tile_counts.push_back(timing.deterministic_tiles);
+      atomic_tile_rows.push_back(timing.atomic_tile_rows);
+      atomic_tile_counts.push_back(timing.atomic_tiles);
       x_zero_copy.push_back(timing.x_zero_copy ? 1 : 0);
       // Keep no-oracle performance runs from accepting NaN/Inf output. This scan is
       // deliberately outside the timed Explain call, alongside hashing and accuracy.
@@ -502,6 +514,7 @@ int main(int argc, char** argv) {
          << ", \"kernel_kind\": " << JsonString(is_metallib ? "metallib" : "source")
          << ", \"rows_per_simdgroup\": " << options.rows_per_simdgroup
          << ", \"threads_per_threadgroup\": " << options.threads_per_threadgroup
+         << ", \"atomic_tile_rows\": " << options.atomic_tile_rows
          << ", \"accumulation\": " << JsonString(options.accumulation)
          << ", \"model_storage\": " << JsonString(options.storage)
          << ", \"deterministic_scratch_mib\": " << options.deterministic_scratch_mib
@@ -537,6 +550,10 @@ int main(int argc, char** argv) {
     WriteSizeArray(json, active_tile_rows);
     json << ", \"tile_count_samples\": ";
     WriteSizeArray(json, active_tile_counts);
+    json << "},\n    \"atomic_runtime\": {\"tile_rows_samples\": ";
+    WriteSizeArray(json, atomic_tile_rows);
+    json << ", \"tile_count_samples\": ";
+    WriteSizeArray(json, atomic_tile_counts);
     json << "}\n  },\n"
          << "  \"throughput\": {\"rows_per_wall_s\": "
          << (static_cast<double>(rows) / wall_median)

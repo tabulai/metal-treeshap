@@ -39,6 +39,13 @@ def main() -> None:
                        "invalid rows_per_simdgroup")
         expect_failure(base + ["--rows-per-simdgroup", "4294967296"],
                        "does not fit uint32")
+        expect_failure(base + ["--atomic-tile-rows", "7junk"],
+                       "invalid atomic_tile_rows")
+        expect_failure(base + ["--atomic-tile-rows", "4294967296"],
+                       "atomic_tile_rows does not fit uint32")
+        expect_failure(base + ["--atomic-tile-rows", "0",
+                               "--atomic-tile-rows", "256"],
+                       "specified more than once")
         expect_failure(base + ["--accumulation", "other"],
                        "atomic, simdgroup, or deterministic")
         expect_failure(base + ["--deterministic-scratch-mib", "0"],
@@ -54,7 +61,7 @@ def main() -> None:
                        "X.csv must contain at least one row")
         expect_failure(base, "X.csv must contain at least one row")
 
-    print("ALL 10 METAL CLI VALIDATION TESTS PASSED")
+    print("ALL 13 METAL CLI VALIDATION TESTS PASSED")
 
 
 if __name__ == "__main__":

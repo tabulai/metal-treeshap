@@ -7,6 +7,7 @@
 //             [--kernel <treeshap.metallib | treeshap.metal>]
 //             [--rows-per-simdgroup N]
 //             [--threads-per-threadgroup 32|64|128|256]
+//             [--atomic-tile-rows N]  # 0 means full dispatch
 //             [--accumulation atomic|simdgroup|deterministic]
 //             [--deterministic-scratch-mib N] [--model-storage shared|private]
 //
@@ -34,6 +35,7 @@ int main() {
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -73,11 +75,13 @@ int main(int argc, char** argv) {
     std::string kernel_arg;
     uint32_t rows_per_sg = 256;
     uint32_t threads_per_tg = 256;
+    size_t atomic_tile_rows = 0;
     AccumulationMode accumulation = AccumulationMode::kAtomic;
     ModelStorageMode model_storage = ModelStorageMode::kShared;
     size_t deterministic_scratch_mib = 256;
     bool kernel_set = false, rows_per_set = false, threads_per_set = false;
     bool accumulation_set = false, storage_set = false, scratch_set = false;
+    bool atomic_tile_set = false;
     for (int i = 1; i < argc; i++) {
       const std::string a = argv[i];
       if (a == "--kernel") {
@@ -111,6 +115,18 @@ int main(int argc, char** argv) {
               "threads_per_threadgroup must be one of 32, 64, 128, 256");
         }
         threads_per_set = true;
+      } else if (a == "--atomic-tile-rows") {
+        if (atomic_tile_set) {
+          throw std::invalid_argument("--atomic-tile-rows specified more than once");
+        }
+        if (i + 1 >= argc) {
+          throw std::invalid_argument("--atomic-tile-rows requires a value");
+        }
+        atomic_tile_rows = csv::ParseSize(argv[++i], "atomic_tile_rows");
+        if (atomic_tile_rows > std::numeric_limits<uint32_t>::max()) {
+          throw std::invalid_argument("atomic_tile_rows does not fit uint32");
+        }
+        atomic_tile_set = true;
       } else if (a == "--accumulation") {
         if (accumulation_set) {
           throw std::invalid_argument("--accumulation specified more than once");
@@ -167,6 +183,7 @@ int main(int argc, char** argv) {
                 << " <paths.csv> <X.csv> <num_groups> <out.csv> [intercepts]"
                    " [--kernel <lib-or-source>] [--rows-per-simdgroup N]"
                    " [--threads-per-threadgroup 32|64|128|256]"
+                   " [--atomic-tile-rows N]"
                    " [--accumulation atomic|simdgroup|deterministic]"
                    " [--deterministic-scratch-mib N]"
                    " [--model-storage shared|private]\n";
@@ -191,6 +208,7 @@ int main(int argc, char** argv) {
                                : Explainer::LibraryKind::kSourceString);
     explainer.set_rows_per_simdgroup(rows_per_sg);
     explainer.set_threads_per_threadgroup(threads_per_tg);
+    explainer.set_atomic_tile_rows(atomic_tile_rows);
     explainer.set_accumulation_mode(accumulation);
     explainer.set_deterministic_scratch_budget_bytes(
         csv::CheckedMul(deterministic_scratch_mib, size_t{1024} * 1024,
@@ -207,6 +225,7 @@ int main(int argc, char** argv) {
                  "[metal_cli] kernel=%s (%s) rows=%zu cols=%zu groups=%zu bins=%zu "
                  "dispatched=%d zero_copy=%d upload=%.4fs encode=%.4fs gpu=%.4fs "
                  "total=%.4fs accumulation=%s threads_per_tg=%u model_storage=%s "
+                 "atomic_tile_rows_requested=%zu atomic_tile_rows=%zu atomic_tiles=%zu "
                  "atomic_writes_per_row=%zu simdgroup_writes_per_row=%zu "
                  "deterministic_partials_per_row=%zu deterministic_active_cells=%zu "
                  "deterministic_scratch_mib=%zu deterministic_scratch_used=%zu "
@@ -221,6 +240,7 @@ int main(int argc, char** argv) {
                                                                      : "deterministic"),
                  threads_per_tg,
                  model_storage == ModelStorageMode::kShared ? "shared" : "private",
+                 atomic_tile_rows, tm.atomic_tile_rows, tm.atomic_tiles,
                  model->atomic_writes_per_row(), model->simdgroup_writes_per_row(),
                  model->deterministic_num_partials(),
                  model->deterministic_num_active_cells(), deterministic_scratch_mib,

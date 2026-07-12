@@ -58,6 +58,7 @@ namespace metal_treeshap {
 
 struct KernelParams {  // must match struct Params in treeshap.metal
   uint32_t num_rows;
+  uint32_t row_offset;
   uint32_t num_cols;
   uint32_t num_groups;
   uint32_t num_bins;
@@ -97,6 +98,8 @@ struct ExplainTimings {
   size_t deterministic_scratch_capacity_bytes = 0;
   size_t deterministic_tile_rows = 0;
   size_t deterministic_tiles = 0;
+  size_t atomic_tile_rows = 0;
+  size_t atomic_tiles = 0;
 };
 
 namespace detail_host {
@@ -403,10 +406,26 @@ class Explainer {
       detail_host::ScopedPool pool;  // scope autoreleased strings/errors
       NS::Error* error = nullptr;
       detail_host::OwnGuard<MTL::Library> lib_g;
+      detail_host::OwnGuard<MTL::Library> precise_lib_g;
       if (kind == LibraryKind::kMetallibFile) {
         auto* lib_path = NS::String::string(spec.c_str(), NS::UTF8StringEncoding);
         lib_g = detail_host::OwnGuard<MTL::Library>(device_g->newLibrary(lib_path, &error));
         if (!lib_g) throw std::runtime_error("failed to load metallib: " + spec);
+        const size_t suffix = spec.rfind(".metallib");
+        const std::string precise_path =
+            suffix == std::string::npos
+                ? spec + "_precise.metallib"
+                : spec.substr(0, suffix) + "_precise.metallib";
+        auto* precise_lib_path =
+            NS::String::string(precise_path.c_str(), NS::UTF8StringEncoding);
+        error = nullptr;
+        precise_lib_g = detail_host::OwnGuard<MTL::Library>(
+            device_g->newLibrary(precise_lib_path, &error));
+        if (!precise_lib_g) {
+          throw std::runtime_error(
+              "failed to load precise reducer metallib: " + precise_path +
+              " (compile shaders/treeshap.metal with fast math disabled)");
+        }
       } else {
         // Runtime compilation: the tested path on Macs without the offline Metal toolchain.
         auto* src = NS::String::string(spec.c_str(), NS::UTF8StringEncoding);
@@ -426,10 +445,32 @@ class Explainer {
           }
           throw std::runtime_error(msg);
         }
+
+        // Compile a second copy only for the serial reducer. Metal fast math can
+        // reassociate Kahan's correction to zero; keeping the precise pipeline separate
+        // preserves the fast recurrence kernels and their Phase-2 performance.
+        detail_host::OwnGuard<MTL::CompileOptions> precise_opts(
+            MTL::CompileOptions::alloc()->init());
+        if (!precise_opts) {
+          throw std::runtime_error("failed to create precise Metal compile options");
+        }
+        precise_opts->setLanguageVersion(MTL::LanguageVersion3_0);
+        precise_opts->setFastMathEnabled(false);
+        error = nullptr;
+        precise_lib_g = detail_host::OwnGuard<MTL::Library>(
+            device_g->newLibrary(src, precise_opts.get(), &error));
+        if (!precise_lib_g) {
+          std::string msg = "failed to compile precise MSL reducer";
+          if (error && error->localizedDescription()) {
+            msg += ": ";
+            msg += error->localizedDescription()->utf8String();
+          }
+          throw std::runtime_error(msg);
+        }
       }
-      auto make_pipeline = [&](const char* name) {
+      auto make_pipeline = [&](MTL::Library* library, const char* name) {
         auto* fn_name = NS::String::string(name, NS::UTF8StringEncoding);
-        detail_host::OwnGuard<MTL::Function> fn_g(lib_g->newFunction(fn_name));
+        detail_host::OwnGuard<MTL::Function> fn_g(library->newFunction(fn_name));
         if (!fn_g) throw std::runtime_error(std::string("kernel '") + name + "' not found");
         detail_host::OwnGuard<MTL::ComputePipelineState> result(
             device_g->newComputePipelineState(fn_g.get(), &error));
@@ -439,10 +480,11 @@ class Explainer {
         }
         return result;
       };
-      pso_g = make_pipeline("shap_first_order");
-      simdgroup_pso_g = make_pipeline("shap_first_order_simdgroup");
-      partial_pso_g = make_pipeline("shap_partials");
-      reduction_pso_g = make_pipeline("reduce_partials_serial");
+      pso_g = make_pipeline(lib_g.get(), "shap_first_order");
+      simdgroup_pso_g = make_pipeline(lib_g.get(), "shap_first_order_simdgroup");
+      partial_pso_g = make_pipeline(lib_g.get(), "shap_partials");
+      reduction_pso_g =
+          make_pipeline(precise_lib_g.get(), "reduce_partials_serial");
     }
     if (pso_g->threadExecutionWidth() != 32 ||
         simdgroup_pso_g->threadExecutionWidth() != 32) {
@@ -495,6 +537,7 @@ class Explainer {
     const uint32_t rows_per_sg = rows_per_simdgroup_;  // read under the same mutex
     const uint32_t threads_per_tg = threads_per_threadgroup_;
     const AccumulationMode accumulation = accumulation_mode_;
+    const size_t atomic_tile_rows_requested = atomic_tile_rows_;
     const size_t deterministic_scratch_budget = deterministic_scratch_budget_bytes_;
     namespace chr = std::chrono;
     const auto t0 = chr::steady_clock::now();
@@ -585,10 +628,6 @@ class Explainer {
     };
 
     if (accumulation != AccumulationMode::kDeterministic) {
-      const uint64_t tg_count = threadgroup_count(num_rows);
-      KernelParams params{static_cast<uint32_t>(num_rows), static_cast<uint32_t>(num_cols),
-                          static_cast<uint32_t>(num_groups),
-                          static_cast<uint32_t>(model.num_bins()), rows_per_sg};
       enc->setComputePipelineState(accumulation == AccumulationMode::kSimdgroup
                                        ? simdgroup_pso_
                                        : pso_);
@@ -596,9 +635,26 @@ class Explainer {
       enc->setBuffer(model.elements(), 0, 1);
       enc->setBuffer(model.segments(), 0, 2);
       enc->setBuffer(phis_buf_, 0, 3);
-      enc->setBytes(&params, sizeof(params), 4);
-      enc->dispatchThreadgroups(MTL::Size::Make(tg_count, 1, 1),
-                                MTL::Size::Make(threads_per_tg, 1, 1));
+      const bool tile_atomic = accumulation == AccumulationMode::kAtomic;
+      const size_t tile_rows =
+          !tile_atomic || atomic_tile_rows_requested == 0
+              ? num_rows
+              : std::min(atomic_tile_rows_requested, num_rows);
+      if (tile_atomic) {
+        t.atomic_tile_rows = tile_rows;
+        t.atomic_tiles = (num_rows + tile_rows - 1) / tile_rows;
+      }
+      for (size_t row_offset = 0; row_offset < num_rows; row_offset += tile_rows) {
+        const size_t rows = std::min(tile_rows, num_rows - row_offset);
+        KernelParams params{static_cast<uint32_t>(rows),
+                            static_cast<uint32_t>(row_offset),
+                            static_cast<uint32_t>(num_cols),
+                            static_cast<uint32_t>(num_groups),
+                            static_cast<uint32_t>(model.num_bins()), rows_per_sg};
+        enc->setBytes(&params, sizeof(params), 4);
+        enc->dispatchThreadgroups(MTL::Size::Make(threadgroup_count(rows), 1, 1),
+                                  MTL::Size::Make(threads_per_tg, 1, 1));
+      }
     } else {
       const size_t partials = model.deterministic_num_partials();
       const size_t active_cells = model.deterministic_num_active_cells();
@@ -700,6 +756,20 @@ class Explainer {
     accumulation_mode_ = mode;
   }
 
+  // Zero retains the original single-dispatch behavior. A positive value splits atomic
+  // accumulation into disjoint row dispatches in one command buffer. SIMD-group and
+  // deterministic modes keep their independent dispatch policies.
+  void set_atomic_tile_rows(size_t rows) {
+    detail_host::CheckU32(rows, "atomic_tile_rows");
+    std::lock_guard<std::mutex> lock(mu_);
+    atomic_tile_rows_ = rows;
+  }
+
+  size_t atomic_tile_rows() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return atomic_tile_rows_;
+  }
+
   void set_deterministic_scratch_budget_bytes(size_t bytes) {
     if (bytes == 0) {
       throw std::invalid_argument("deterministic scratch budget must be > 0 bytes");
@@ -760,6 +830,7 @@ class Explainer {
   uint32_t rows_per_simdgroup_ = 256;
   uint32_t threads_per_threadgroup_ = 256;
   AccumulationMode accumulation_mode_ = AccumulationMode::kAtomic;
+  size_t atomic_tile_rows_ = 0;  // 0 = full batch in one dispatch
   size_t deterministic_scratch_budget_bytes_ =
       kDefaultDeterministicScratchBudgetBytes;
   mutable std::mutex mu_;

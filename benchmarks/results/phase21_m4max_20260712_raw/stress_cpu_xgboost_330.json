@@ -1,0 +1,82 @@
+{
+  "created_utc": "2026-07-12T23:43:06Z",
+  "design": {
+    "iterations": 3,
+    "setup_excluded": [
+      "model_load",
+      "DMatrix construction"
+    ],
+    "timed_call": "Booster.predict(DMatrix, pred_contribs=True)",
+    "warmups": 1
+  },
+  "environment": {
+    "machine": "arm64",
+    "nthread": 16,
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "xgboost": "3.3.0",
+    "xgboost_build_info": {
+      "BUILTIN_PREFETCH_PRESENT": true,
+      "CLANG_VERSION": [
+        15,
+        0,
+        0
+      ],
+      "DEBUG": false,
+      "MM_PREFETCH_PRESENT": false,
+      "USE_CUDA": false,
+      "USE_DLOPEN_NCCL": false,
+      "USE_FEDERATED": false,
+      "USE_NCCL": false,
+      "USE_OPENMP": true,
+      "USE_RMM": false,
+      "libxgboost": "/private/tmp/metal-treeshap-py313/lib/python3.13/site-packages/xgboost/lib/libxgboost.dylib"
+    }
+  },
+  "inputs": {
+    "available_rows": 8192,
+    "cols": 12,
+    "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+    "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+    "model": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/model.json",
+    "sha256": {
+      "expected": "abd3c5bf90493c9252c1e329856c2b2ea16a7b6536409c1b0dfdb84273bb507b",
+      "matrix": "5cbcd8769d4500ac59c3499fe2b3356c1e9fdc4325e16948ddc50d06711085f3",
+      "model": "7373d237cf01cf32e1ceec1f308c284ba3822e843052636cf95c1a20dcc33bc3"
+    }
+  },
+  "results": [
+    {
+      "accuracy": {
+        "max_abs": 1.9073486328125e-06,
+        "mean_abs": 2.394972042907284e-08
+      },
+      "dmatrix_setup_s": 0.004070749972015619,
+      "repeatability": {
+        "hash_algorithm": "sha256-array-bytes",
+        "hashes": [
+          "28cfd7883ca7b6909cbc95f3fb7164ef233ce65d71a16a467a259b9e49951d78",
+          "28cfd7883ca7b6909cbc95f3fb7164ef233ce65d71a16a467a259b9e49951d78",
+          "28cfd7883ca7b6909cbc95f3fb7164ef233ce65d71a16a467a259b9e49951d78"
+        ],
+        "unique_hashes": 1
+      },
+      "rows": 8192,
+      "throughput_rows_per_s": 1110.5288633743592,
+      "timing_s": {
+        "median": 7.376665542135015,
+        "p10": 7.281298141973093,
+        "p90": 7.509803541982547,
+        "samples": [
+          7.543088041944429,
+          7.257456291932613,
+          7.376665542135015
+        ]
+      }
+    }
+  ],
+  "schema": "metal_treeshap.phase2.cpu_xgboost.v1",
+  "setup_s": {
+    "load_model_matrix_expected": 0.19022562517784536
+  }
+}

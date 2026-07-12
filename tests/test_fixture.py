@@ -19,6 +19,7 @@ runs (observed Metal errors: <= 6.505e-6 across all seven current fixtures).
 
 Usage: python tests/test_fixture.py [path/to/reference_cli] [--metal-cli path/to/metal_cli]
              [--metal-rows-per-simdgroup N]
+             [--metal-atomic-tile-rows N]
              [--metal-accumulation atomic|simdgroup|deterministic]
              [--metal-deterministic-scratch-mib N]
              [--metal-model-storage shared|private]
@@ -40,6 +41,7 @@ from extract_paths import extract_model, write_paths_csv  # noqa: E402
 ARGS = sys.argv[1:]
 METAL_CLI = os.environ.get("METAL_CLI")
 METAL_ROWS_PER_SIMDGROUP = os.environ.get("METAL_ROWS_PER_SIMDGROUP", "1024")
+METAL_ATOMIC_TILE_ROWS = os.environ.get("METAL_ATOMIC_TILE_ROWS", "0")
 METAL_ACCUMULATION = os.environ.get("METAL_ACCUMULATION", "atomic")
 METAL_DETERMINISTIC_SCRATCH_MIB = os.environ.get(
     "METAL_DETERMINISTIC_SCRATCH_MIB", "256")
@@ -55,6 +57,12 @@ if "--metal-rows-per-simdgroup" in ARGS:
     if idx + 1 >= len(ARGS):
         raise SystemExit("--metal-rows-per-simdgroup requires a value")
     METAL_ROWS_PER_SIMDGROUP = ARGS[idx + 1]
+    del ARGS[idx:idx + 2]
+if "--metal-atomic-tile-rows" in ARGS:
+    idx = ARGS.index("--metal-atomic-tile-rows")
+    if idx + 1 >= len(ARGS):
+        raise SystemExit("--metal-atomic-tile-rows requires a value")
+    METAL_ATOMIC_TILE_ROWS = ARGS[idx + 1]
     del ARGS[idx:idx + 2]
 if "--metal-accumulation" in ARGS:
     idx = ARGS.index("--metal-accumulation")
@@ -80,6 +88,12 @@ except ValueError as exc:
     raise SystemExit("Metal rows_per_simdgroup must be an integer") from exc
 if METAL_ROWS_PER_SIMDGROUP_INT <= 0 or METAL_ROWS_PER_SIMDGROUP_INT > 2**32 - 1:
     raise SystemExit("Metal rows_per_simdgroup must be in [1, 2^32-1]")
+try:
+    METAL_ATOMIC_TILE_ROWS_INT = int(METAL_ATOMIC_TILE_ROWS)
+except ValueError as exc:
+    raise SystemExit("Metal atomic tile rows must be an integer") from exc
+if METAL_ATOMIC_TILE_ROWS_INT < 0 or METAL_ATOMIC_TILE_ROWS_INT > 2**32 - 1:
+    raise SystemExit("Metal atomic tile rows must be in [0, 2^32-1]")
 if METAL_ACCUMULATION not in {"atomic", "simdgroup", "deterministic"}:
     raise SystemExit("Metal accumulation must be atomic, simdgroup, or deterministic")
 if METAL_MODEL_STORAGE not in {"shared", "private"}:
@@ -129,6 +143,7 @@ def run_fixture(case_dir: str) -> None:
             outm = os.path.join(td, "om.csv")
             subprocess.run([METAL_CLI, paths_csv, x_csv, str(num_groups), outm, icept,
                             "--rows-per-simdgroup", str(METAL_ROWS_PER_SIMDGROUP_INT),
+                            "--atomic-tile-rows", str(METAL_ATOMIC_TILE_ROWS_INT),
                             "--accumulation", METAL_ACCUMULATION,
                             "--deterministic-scratch-mib",
                             str(METAL_DETERMINISTIC_SCRATCH_MIB_INT),
@@ -145,7 +160,7 @@ def run_fixture(case_dir: str) -> None:
           + (f", frozen with xgboost {meta['xgboost_version']}" if "xgboost_version" in meta
              else "") + f"): reference max|phi - expected| = {err:.3e}"
           + (f", METAL[{METAL_ACCUMULATION},{METAL_MODEL_STORAGE},"
-             f"rps={METAL_ROWS_PER_SIMDGROUP_INT}] "
+             f"rps={METAL_ROWS_PER_SIMDGROUP_INT},tile={METAL_ATOMIC_TILE_ROWS_INT}] "
              f"max|phi - expected| = {metal_err:.3e}" if metal_err is not None
              else "") + f" (tol {tol})")
     assert ok, f"fixture regression in {case_dir}"
@@ -160,6 +175,7 @@ if __name__ == "__main__":
     for case in cases:
         run_fixture(os.path.join(FX_ROOT, case))
     engines = "reference" + (f" + Metal[{METAL_ACCUMULATION},{METAL_MODEL_STORAGE},"
-                             f"rps={METAL_ROWS_PER_SIMDGROUP_INT}]"
+                             f"rps={METAL_ROWS_PER_SIMDGROUP_INT},"
+                             f"tile={METAL_ATOMIC_TILE_ROWS_INT}]"
                              if METAL_CLI else "")
     print(f"ALL {len(cases)} FIXTURE TESTS PASSED ({engines})")

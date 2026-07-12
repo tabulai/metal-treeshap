@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Create deterministic Phase-2 benchmark workloads outside the frozen test oracles.
 
-Three workload families are supported:
+Five workload families are supported:
 
 * ``hot`` creates many stumps that all update one feature/output cell.  It is a focused
   contention workload for comparing per-lane atomics with SIMD-group aggregation and has
@@ -11,6 +11,10 @@ Three workload families are supported:
   modified.  Directories such as the generated stress500 dataset are accepted too.
 * ``stress`` trains and freezes a deterministic 500-tree depth-8 XGBoost regression
   workload, including model, extracted paths, data, oracle output, and provenance hashes.
+* ``wide`` trains the same deterministic regression shape over many features, reducing
+  output-cell contention and exercising a much wider attribution vector.
+* ``multiclass`` trains a deterministic multi-output classifier, exercising tree-group
+  routing and the group-major attribution layout used by the native benchmark.
 
 Every output has a workload.json consumed by phase2_run.py.
 """
@@ -80,15 +84,27 @@ def generate_hot(args: argparse.Namespace) -> None:
     paths = output / "paths.csv"
     with paths.open("w", newline="") as target:
         writer = csv.writer(target, lineterminator="\n")
-        writer.writerow(("path_idx", "feature_idx", "group", "lower", "upper",
-                         "is_missing", "zero_fraction", "v"))
+        writer.writerow(
+            (
+                "path_idx",
+                "feature_idx",
+                "group",
+                "lower",
+                "upper",
+                "is_missing",
+                "zero_fraction",
+                "v",
+            )
+        )
         path_idx = 0
         for _ in range(args.trees):
             for lower, upper, missing, leaf in (
                 ("-inf", "0", 1, -args.leaf_scale),
                 ("0", "inf", 0, args.leaf_scale),
             ):
-                writer.writerow((path_idx, 0, 0, lower, upper, missing, 0.5, repr(leaf)))
+                writer.writerow(
+                    (path_idx, 0, 0, lower, upper, missing, 0.5, repr(leaf))
+                )
                 writer.writerow((path_idx, -1, 0, "-inf", "inf", 1, 1.0, repr(leaf)))
                 path_idx += 1
 
@@ -100,8 +116,10 @@ def generate_hot(args: argparse.Namespace) -> None:
             values.append(None)
         else:
             values.append(rng.uniform(-2.0, 2.0))
-    with (output / "X.csv").open("w") as matrix, \
-         (output / "expected.csv").open("w") as expected:
+    with (
+        (output / "X.csv").open("w") as matrix,
+        (output / "expected.csv").open("w") as expected,
+    ):
         magnitude = args.trees * args.leaf_scale
         for value in values:
             matrix.write("nan\n" if value is None else f"{value:.9g}\n")
@@ -167,7 +185,9 @@ def materialize_fixture(args: argparse.Namespace) -> None:
     if source_paths.exists():
         shutil.copyfile(source_paths, output / "paths.csv")
         num_groups = int(meta.get("num_groups", meta.get("groups", 1)))
-        intercepts = [float(value) for value in meta.get("intercepts", [0.0] * num_groups)]
+        intercepts = [
+            float(value) for value in meta.get("intercepts", [0.0] * num_groups)
+        ]
     elif model_path.exists():
         extracted = extract_model(str(model_path))
         write_paths_csv(extracted.paths, str(output / "paths.csv"))
@@ -185,8 +205,9 @@ def materialize_fixture(args: argparse.Namespace) -> None:
     if not expected_source.exists():
         expected_source = source / "expected.csv"
     if expected_source.exists():
-        expected_rows, expected_cols = _write_tiled(expected_source, output / "expected.csv",
-                                                     rows)
+        expected_rows, expected_cols = _write_tiled(
+            expected_source, output / "expected.csv", rows
+        )
         if expected_rows != rows or expected_cols != num_groups * (cols + 1):
             raise SystemExit("expected attribution shape does not match X/groups")
 
@@ -209,33 +230,108 @@ def materialize_fixture(args: argparse.Namespace) -> None:
     print(output / "workload.json")
 
 
-def generate_stress(args: argparse.Namespace) -> None:
-    """Train and freeze a deterministic, moderately large XGBoost regression workload."""
-    try:
-        import numpy as np
-        import xgboost as xgb
-    except ImportError as error:
-        raise SystemExit("stress generation requires numpy and xgboost") from error
+def _validate_xgboost_args(args: argparse.Namespace, *, minimum_features: int) -> None:
     if min(args.trees, args.depth, args.features, args.train_rows, args.rows) <= 0:
-        raise SystemExit("stress dimensions must all be positive")
-    if args.features < 5:
-        raise SystemExit("--features must be at least 5 for the fixed nonlinear target")
+        raise SystemExit("workload dimensions must all be positive")
+    if args.features < minimum_features:
+        raise SystemExit(
+            f"--features must be at least {minimum_features} for this target"
+        )
     if not math.isfinite(args.eta) or not 0 < args.eta <= 1:
         raise SystemExit("--eta must be finite and in (0, 1]")
     if not math.isfinite(args.missing_rate) or not 0 <= args.missing_rate < 1:
         raise SystemExit("--missing-rate must be finite and in [0, 1)")
 
+
+def _freeze_booster(
+    args: argparse.Namespace,
+    *,
+    params: dict,
+    train_x,
+    y,
+    kind: str,
+    extra_manifest: dict | None = None,
+    explain_x=None,
+) -> None:
+    """Train and freeze an XGBoost benchmark with a common, hashed artifact contract."""
+    import numpy as np
+    import xgboost as xgb
+
     output = Path(args.output).resolve()
     _prepare_output(output, args.force)
+    booster = xgb.train(
+        params, xgb.DMatrix(train_x, label=y), num_boost_round=args.trees
+    )
+    model_path = output / "model.json"
+    booster.save_model(model_path)
+    extracted = extract_model(str(model_path))
+    write_paths_csv(extracted.paths, str(output / "paths.csv"))
+
+    if explain_x is None:
+        rng = np.random.default_rng(args.seed + 1)
+        explain_x = rng.normal(size=(args.rows, args.features)).astype(np.float32)
+        explain_x[rng.random(explain_x.shape) < args.missing_rate] = np.nan
+    booster.set_param({"nthread": os.cpu_count() or 1})
+    expected = booster.predict(xgb.DMatrix(explain_x), pred_contribs=True)
+    np.savetxt(output / "X.csv", explain_x, delimiter=",", fmt="%.9g")
+    np.savetxt(
+        output / "expected.csv",
+        expected.reshape(args.rows, -1),
+        delimiter=",",
+        fmt="%.12g",
+    )
+
+    manifest = {
+        "name": args.name,
+        "kind": kind,
+        "rows": args.rows,
+        "cols": args.features,
+        "num_groups": extracted.num_groups,
+        "intercepts": [float(value) for value in extracted.intercepts],
+        "raw_path_elements": len(extracted.paths),
+        "trees": args.trees,
+        "depth": args.depth,
+        "train_rows": args.train_rows,
+        "seed": args.seed,
+        "eta": args.eta,
+        "missing_rate": args.missing_rate,
+        "xgboost_version": xgb.__version__,
+        "tolerance": 1e-3,
+        "model": "model.json",
+        "model_sha256": _sha256(model_path),
+    }
+    if extra_manifest:
+        manifest.update(extra_manifest)
+    _write_manifest(output, manifest)
+    print(output / "workload.json")
+
+
+def generate_stress(args: argparse.Namespace) -> None:
+    """Train and freeze a deterministic, moderately large XGBoost regression workload."""
+    try:
+        import numpy as np
+        __import__("xgboost")
+    except ImportError as error:
+        raise SystemExit("stress generation requires numpy and xgboost") from error
+    _validate_xgboost_args(args, minimum_features=5)
     rng = np.random.default_rng(args.seed)
     train_x = rng.normal(size=(args.train_rows, args.features)).astype(np.float32)
     train_missing = rng.random(train_x.shape) < args.missing_rate
     train_x[train_missing] = np.nan
     # Fixed nonlinear signal gives deep trees useful structure without external data.
     safe = np.nan_to_num(train_x, nan=0.0)
-    y = (1.7 * safe[:, 0] - 1.1 * safe[:, 1] ** 2 +
-         0.8 * safe[:, 2] * safe[:, 3] + np.sin(safe[:, 4]) +
-         rng.normal(0.0, 0.15, size=args.train_rows)).astype(np.float32)
+    y = (
+        1.7 * safe[:, 0]
+        - 1.1 * safe[:, 1] ** 2
+        + 0.8 * safe[:, 2] * safe[:, 3]
+        + np.sin(safe[:, 4])
+        + rng.normal(0.0, 0.15, size=args.train_rows)
+    ).astype(np.float32)
+    # Preserve the original stress500 byte stream: its explain matrix continues the
+    # training generator rather than starting a separate RNG. Existing hashes therefore
+    # remain comparable across the Phase-2 and Phase-2.1 runners.
+    explain_x = rng.normal(size=(args.rows, args.features)).astype(np.float32)
+    explain_x[rng.random(explain_x.shape) < args.missing_rate] = np.nan
     params = {
         "objective": "reg:squarederror",
         "max_depth": args.depth,
@@ -246,53 +342,130 @@ def generate_stress(args: argparse.Namespace) -> None:
         "subsample": 1.0,
         "colsample_bytree": 1.0,
     }
-    booster = xgb.train(params, xgb.DMatrix(train_x, label=y),
-                        num_boost_round=args.trees)
-    model_path = output / "model.json"
-    booster.save_model(model_path)
-    extracted = extract_model(str(model_path))
-    write_paths_csv(extracted.paths, str(output / "paths.csv"))
+    _freeze_booster(
+        args,
+        params=params,
+        train_x=train_x,
+        y=y,
+        kind="deterministic_xgboost_stress",
+        explain_x=explain_x,
+    )
 
-    explain_x = rng.normal(size=(args.rows, args.features)).astype(np.float32)
-    explain_x[rng.random(explain_x.shape) < args.missing_rate] = np.nan
-    # Training stays single-threaded for a stable model; contribution prediction is a
-    # pure read of that frozen model and can use the host without changing its result.
-    booster.set_param({"nthread": os.cpu_count() or 1})
-    expected = booster.predict(xgb.DMatrix(explain_x), pred_contribs=True)
-    np.savetxt(output / "X.csv", explain_x, delimiter=",", fmt="%.9g")
-    np.savetxt(output / "expected.csv", expected.reshape(args.rows, -1),
-               delimiter=",", fmt="%.12g")
 
-    _write_manifest(
-        output,
-        {
-            "name": args.name,
-            "kind": "deterministic_xgboost_stress",
-            "rows": args.rows,
-            "cols": args.features,
-            "num_groups": extracted.num_groups,
-            "intercepts": [float(value) for value in extracted.intercepts],
-            "raw_path_elements": len(extracted.paths),
-            "trees": args.trees,
-            "depth": args.depth,
-            "train_rows": args.train_rows,
-            "seed": args.seed,
-            "eta": args.eta,
-            "missing_rate": args.missing_rate,
-            "xgboost_version": xgb.__version__,
-            "tolerance": 1e-3,
-            "model": "model.json",
-            "model_sha256": _sha256(model_path),
+def generate_wide(args: argparse.Namespace) -> None:
+    """Generate a low-contention regression workload with a wide feature vector."""
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise SystemExit("wide generation requires numpy and xgboost") from error
+    try:
+        import xgboost  # noqa: F401
+    except ImportError as error:
+        raise SystemExit("wide generation requires numpy and xgboost") from error
+    _validate_xgboost_args(args, minimum_features=16)
+    rng = np.random.default_rng(args.seed)
+    train_x = rng.normal(size=(args.train_rows, args.features)).astype(np.float32)
+    train_x[rng.random(train_x.shape) < args.missing_rate] = np.nan
+    safe = np.nan_to_num(train_x[:, :16], nan=0.0)
+    weights = np.linspace(1.4, 0.2, 16, dtype=np.float32)
+    # Some Accelerate-backed NumPy builds emit spurious fp-status warnings after a
+    # finite float32 matmul; inputs and output are explicitly checked below.
+    with np.errstate(all="ignore"):
+        y = (
+            np.tanh(safe) @ weights
+            + 0.7 * safe[:, 0] * safe[:, 8]
+            - 0.5 * safe[:, 3] * safe[:, 12]
+            + rng.normal(0.0, 0.2, size=args.train_rows)
+        ).astype(np.float32)
+    if not np.isfinite(y).all():
+        raise SystemExit("wide target generation produced non-finite values")
+    params = {
+        "objective": "reg:squarederror",
+        "max_depth": args.depth,
+        "eta": args.eta,
+        "tree_method": "hist",
+        "seed": args.seed,
+        "nthread": 1,
+        "subsample": 1.0,
+        "colsample_bytree": 1.0,
+    }
+    _freeze_booster(
+        args,
+        params=params,
+        train_x=train_x,
+        y=y,
+        kind="deterministic_xgboost_wide_features",
+        extra_manifest={
+            "workload_axis": "feature_width",
+            "explain_seed": args.seed + 1,
         },
     )
-    print(output / "workload.json")
+
+
+def generate_multiclass(args: argparse.Namespace) -> None:
+    """Generate a deterministic multiclass workload with multiple output groups."""
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise SystemExit("multiclass generation requires numpy and xgboost") from error
+    try:
+        import xgboost  # noqa: F401
+    except ImportError as error:
+        raise SystemExit("multiclass generation requires numpy and xgboost") from error
+    _validate_xgboost_args(args, minimum_features=8)
+    if args.classes < 3:
+        raise SystemExit("--classes must be at least 3")
+    if args.classes > args.features:
+        raise SystemExit("--classes cannot exceed --features for this target")
+    rng = np.random.default_rng(args.seed)
+    train_x = rng.normal(size=(args.train_rows, args.features)).astype(np.float32)
+    train_x[rng.random(train_x.shape) < args.missing_rate] = np.nan
+    safe = np.nan_to_num(train_x, nan=0.0)
+    projection = rng.normal(0.0, 0.65, size=(args.features, args.classes)).astype(
+        np.float32
+    )
+    with np.errstate(all="ignore"):
+        logits = safe @ projection
+    if not np.isfinite(logits).all():
+        raise SystemExit("multiclass target generation produced non-finite values")
+    logits += 0.55 * np.sin(safe[:, : args.classes])
+    logits += rng.normal(0.0, 0.25, size=logits.shape)
+    y = np.argmax(logits, axis=1).astype(np.float32)
+    # Guarantee every class is represented even for deliberately tiny smoke tests.
+    if args.train_rows >= args.classes:
+        y[: args.classes] = np.arange(args.classes, dtype=np.float32)
+    params = {
+        "objective": "multi:softprob",
+        "num_class": args.classes,
+        "max_depth": args.depth,
+        "eta": args.eta,
+        "tree_method": "hist",
+        "seed": args.seed,
+        "nthread": 1,
+        "subsample": 1.0,
+        "colsample_bytree": 1.0,
+    }
+    _freeze_booster(
+        args,
+        params=params,
+        train_x=train_x,
+        y=y,
+        kind="deterministic_xgboost_multiclass",
+        extra_manifest={
+            "workload_axis": "output_groups",
+            "classes": args.classes,
+            "explain_seed": args.seed + 1,
+        },
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    hot = subparsers.add_parser("hot", help="generate a deterministic hot-cell workload")
+    hot = subparsers.add_parser(
+        "hot", help="generate a deterministic hot-cell workload"
+    )
     hot.add_argument("output")
     hot.add_argument("--name", default="hot2000")
     hot.add_argument("--trees", type=int, default=2000)
@@ -302,17 +475,24 @@ def main() -> None:
     hot.add_argument("--force", action="store_true")
     hot.set_defaults(func=generate_hot)
 
-    fixture = subparsers.add_parser("fixture", help="copy/extract and row-tile a fixture")
+    fixture = subparsers.add_parser(
+        "fixture", help="copy/extract and row-tile a fixture"
+    )
     fixture.add_argument("source")
     fixture.add_argument("output")
     fixture.add_argument("--name")
-    fixture.add_argument("--rows", type=int, default=0,
-                         help="rows in output; 0 preserves the source row count")
+    fixture.add_argument(
+        "--rows",
+        type=int,
+        default=0,
+        help="rows in output; 0 preserves the source row count",
+    )
     fixture.add_argument("--force", action="store_true")
     fixture.set_defaults(func=materialize_fixture)
 
     stress = subparsers.add_parser(
-        "stress", help="train and freeze a deterministic XGBoost stress workload")
+        "stress", help="train and freeze a deterministic XGBoost stress workload"
+    )
     stress.add_argument("output")
     stress.add_argument("--name", default="stress500")
     stress.add_argument("--trees", type=int, default=500)
@@ -325,6 +505,44 @@ def main() -> None:
     stress.add_argument("--missing-rate", type=float, default=0.03)
     stress.add_argument("--force", action="store_true")
     stress.set_defaults(func=generate_stress)
+
+    wide = subparsers.add_parser(
+        "wide", help="train a deterministic wide-feature XGBoost regression workload"
+    )
+    wide.add_argument("output")
+    wide.add_argument("--name", default="wide256")
+    wide.add_argument("--trees", type=int, default=400)
+    wide.add_argument("--depth", type=int, default=6)
+    wide.add_argument("--features", type=int, default=256)
+    wide.add_argument("--train-rows", type=int, default=6000)
+    wide.add_argument("--rows", type=int, default=8192)
+    wide.add_argument("--seed", type=int, default=20260712)
+    wide.add_argument("--eta", type=float, default=0.04)
+    wide.add_argument("--missing-rate", type=float, default=0.03)
+    wide.add_argument("--force", action="store_true")
+    wide.set_defaults(func=generate_wide)
+
+    multiclass = subparsers.add_parser(
+        "multiclass", help="train a deterministic multiclass XGBoost workload"
+    )
+    multiclass.add_argument("output")
+    multiclass.add_argument("--name", default="multiclass8")
+    multiclass.add_argument(
+        "--trees",
+        type=int,
+        default=150,
+        help="boosting rounds; total trees are rounds times classes",
+    )
+    multiclass.add_argument("--depth", type=int, default=6)
+    multiclass.add_argument("--features", type=int, default=32)
+    multiclass.add_argument("--classes", type=int, default=8)
+    multiclass.add_argument("--train-rows", type=int, default=6000)
+    multiclass.add_argument("--rows", type=int, default=8192)
+    multiclass.add_argument("--seed", type=int, default=20260712)
+    multiclass.add_argument("--eta", type=float, default=0.05)
+    multiclass.add_argument("--missing-rate", type=float, default=0.03)
+    multiclass.add_argument("--force", action="store_true")
+    multiclass.set_defaults(func=generate_multiclass)
 
     args = parser.parse_args()
     args.func(args)

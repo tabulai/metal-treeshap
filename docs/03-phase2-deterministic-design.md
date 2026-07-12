@@ -97,19 +97,24 @@ scratch budgets disproportionately expensive.
 
 ## Reduction variants
 
-`reduce_partials_serial` is the implemented initial strategy. Although one thread serializes a
-single hot feature, rows expose many independent copies, while most output segments are
-far shorter than 256 contributors.
+`reduce_partials_serial` is the implemented strategy. One thread serializes a single output
+cell while rows expose many independent copies. Segment length is workload-dependent: the
+12-feature stress workload averages about 24,670 contributions per active cell, while the
+Phase-2.1 wide-feature and multiclass workloads average about 520 and 1,384. The former is a
+deliberately hostile case for a serial reducer; it must not be described as representative of
+all models.
 
 A future parallel reducer could assign a complete threadgroup to one hot cell and use a
 fixed reduction tree. It would remove the hot-cell critical path but waste most of a group
 on short segments. Add it only if profiling justifies a compile-time segment-length split;
 do not choose the threshold analytically.
 
-The deterministic mode necessarily adds one scratch write and one scratch read per
-contribution plus another dispatch. It is the accuracy/repeatability mode, not the throughput
-default. Phase 2 selected plain float atomics for throughput; explicit SIMD pre-aggregation is
-also available but slower on the tested M4 Max workloads.
+The reducer uses Kahan compensation. Its pipeline is compiled separately with Metal fast math
+disabled; compiling it with the recurrence kernels' fast-math setting lets reassociation erase
+the compensation. The deterministic mode necessarily adds one scratch write and one scratch
+read per contribution plus another dispatch. It is the accuracy/repeatability mode, not the
+throughput default. Plain float atomics remain the throughput default; explicit SIMD
+pre-aggregation is also available but slower on the tested M4 Max workloads.
 
 ## Completed validation
 
@@ -123,11 +128,12 @@ also available but slower on the tested M4 Max workloads.
   output initialization separately.
 
 All items above pass. Every frozen fixture runs through deterministic mode; the host test pins
-100 bitwise-identical reruns and exact one-row/single-tile equality. On the 500-tree stress
-workload, a 256 MiB budget uses 255.2 MiB active scratch across 37 tiles and takes 1.2905 s versus
-0.6206 s for selected atomics. It has one output hash and zero repeat spread; max error is
-1.08e-4. A 64 MiB budget increases the tile count to 147 and time to 2.2472 s. See
-`docs/04-phase2-performance-results.md`.
+100 bitwise-identical reruns and exact one-row/single-tile equality. The original plain reducer
+measured 1.2905 s with max error 1.08e-4 on the 500-tree stress workload. Phase 2.1's precise
+Kahan reducer measures 1.3599 s with max error 1.001e-5 and one output hash in every job—about
+10.8× lower worst-case error. The exact timing comparison is environment-sensitive and was not
+a same-process A/B test. See `docs/04-phase2-performance-results.md` for the original result and
+`docs/05-phase21-production-results.md` for the compensated reducer.
 
 ## Split-hi/lo fixed-point assessment
 

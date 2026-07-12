@@ -6,7 +6,9 @@
     {"$ref": "#/$defs/workload"},
     {"$ref": "#/$defs/native_result"},
     {"$ref": "#/$defs/suite"},
-    {"$ref": "#/$defs/cpu_xgboost"}
+    {"$ref": "#/$defs/cpu_xgboost"},
+    {"$ref": "#/$defs/cpu_shap"},
+    {"$ref": "#/$defs/power_summary"}
   ],
   "$defs": {
     "nonnegative_number": {"type": "number", "minimum": 0},
@@ -73,6 +75,7 @@
             "accumulation": {"enum": ["atomic", "simdgroup", "deterministic"]},
             "model_storage": {"enum": ["shared", "private"]},
             "deterministic_scratch_mib": {"$ref": "#/$defs/positive_integer"},
+            "atomic_tile_rows": {"type": "integer", "minimum": 0},
             "warmups": {"type": "integer", "minimum": 0},
             "iterations": {"$ref": "#/$defs/positive_integer"}
           },
@@ -146,6 +149,62 @@
             "properties": {
               "rows": {"$ref": "#/$defs/positive_integer"},
               "timing_s": {"$ref": "#/$defs/timing_distribution"}
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "cpu_shap": {
+      "type": "object",
+      "required": ["schema", "created_utc", "status", "environment", "inputs",
+                   "design", "results"],
+      "properties": {
+        "schema": {"const": "metal_treeshap.phase2.cpu_shap.v1"},
+        "created_utc": {"type": "string"},
+        "status": {"enum": ["ok", "skipped"]},
+        "environment": {"type": "object"},
+        "inputs": {"type": "object"},
+        "design": {"type": "object"},
+        "results": {"type": "array"},
+        "skip_reason": {"type": "string"},
+        "backend_provenance": {"type": "object"},
+        "setup_s": {"type": "object"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "ok"}}},
+          "then": {"required": ["backend_provenance", "setup_s"]}
+        },
+        {
+          "if": {"properties": {"status": {"const": "skipped"}}},
+          "then": {"required": ["skip_reason"]}
+        }
+      ],
+      "additionalProperties": false
+    },
+    "power_summary": {
+      "type": "object",
+      "required": ["schema", "suite", "powermetrics", "jobs"],
+      "properties": {
+        "schema": {"const": "metal_treeshap.phase2.power_summary.v1"},
+        "suite": {"type": "string"},
+        "powermetrics": {"type": "string"},
+        "jobs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["status", "overlapping_samples", "job_duration_s", "provenance"],
+            "properties": {
+              "status": {"enum": ["ok", "unavailable"]},
+              "overlapping_samples": {"type": "integer", "minimum": 0},
+              "job_duration_s": {"$ref": "#/$defs/nonnegative_number"},
+              "gpu_mean_mw": {"$ref": "#/$defs/nonnegative_number"},
+              "gpu_estimated_energy_j": {"$ref": "#/$defs/nonnegative_number"},
+              "cpu_mean_mw": {"$ref": "#/$defs/nonnegative_number"},
+              "cpu_estimated_energy_j": {"$ref": "#/$defs/nonnegative_number"},
+              "provenance": {"type": "object"}
             },
             "additionalProperties": true
           }

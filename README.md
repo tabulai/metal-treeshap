@@ -18,8 +18,11 @@ Start with these documents in `docs/`:
    bounded-memory, fixed-order two-stage accumulation path.
 4. **[docs/04-phase2-performance-results.md](docs/04-phase2-performance-results.md)** — the
    reproducible M4 Max tuning, accuracy, repeatability, CPU comparison, and limitations.
+5. **[docs/05-phase21-production-results.md](docs/05-phase21-production-results.md)** — the
+   atomic-tiling result, precise Kahan reducer, wide/multiclass measurements, Python API,
+   optional SHAP comparison, and final production defaults.
 
-## Status (Phase 2 acceleration complete on M4 Max)
+## Status (Phase 2.1 production path complete on M4 Max)
 
 The portable pipeline, checked-in metal-cpp runner, and Metal kernel pass the local M4 Max
 differential suite in all three accumulation modes. On the checked-in 500-tree/depth-8 stress
@@ -28,6 +31,11 @@ generator, 8,192 rows take **0.6206 s** with the selected Metal configuration ve
 Adding separately measured setup components gives a **6.72× derived setup-plus-call estimate**,
 not direct model-to-first-answer latency. These figures apply to the documented M4 Max workload,
 not every model or Apple GPU; see the Phase 2 results for raw sample dispersion and limitations.
+Phase 2.1 additionally measured **22.63×** on a 256-feature regression workload and **21.98×**
+on an eight-class workload. A blocked finalist experiment did not reproduce a benefit from
+atomic row tiling, so full dispatch remains the default. Precise Kahan reduction lowers the
+deterministic stress error about 10.8×, and a tested nanobind wheel now exposes
+`MetalTreeExplainer`.
 
 | component | file(s) | state |
 |---|---|---|
@@ -38,10 +46,11 @@ not every model or Apple GPU; see the Phase 2 results for raw sample dispersion 
 | Golden tests (16 cases + rejection check; **non-mutating** — fixtures/results only change under explicit flags) | `tests/test_vs_xgboost.py` → `tests/RESULTS.md` | **passing on XGBoost 2.0.3 and 3.1.2** at the 1e-3 gate |
 | Property-based additivity tests (stumps, structurally guaranteed depth-31/32-element groups, deterministic comb, repeated features, ~1e-4 covers, NaNs, independent exact-Shapley vector oracle) | `tests/test_property_additivity.cpp` | **passing**, incl. asserted 32-lane group execution |
 | Frozen fixtures replayable without xgboost (6 model cases, including a real missing-only path, plus synthetic `deep31` 32-lane comb) | `tests/fixtures/*/`, `tests/test_fixture.py` | **passing** |
-| Metal kernels: atomic, SIMD pre-aggregation, deterministic partials+reduction | `shaders/treeshap.metal` | **validated on M4 Max**: Metal 3 compile, width 32, lane-31, missing-only NaN routing, every frozen fixture ≤ 6.51e-6; separate fast-mode pipelines avoid runtime-branch register cost |
-| metal-cpp compiled-model host: persistent shared/private model buffers, three accumulation modes, bounded private deterministic scratch, row tiling/barriers, timing and tuning controls, hardened ownership/shape checks | `src/metal_host.hpp` | **locally built and exercised on M4 Max** across all fixtures and modes; deterministic output bit-stable across 100 repeats and tile sizes |
+| Metal kernels: atomic, SIMD pre-aggregation, deterministic partials+precise Kahan reduction | `shaders/treeshap.metal` | **validated on M4 Max**: Metal 3 compile, width 32, lane-31, missing-only NaN routing, every frozen fixture ≤ 6.51e-6; separate fast recurrence and precise reducer pipelines |
+| metal-cpp compiled-model host: persistent shared/private model buffers, three accumulation modes, bounded private deterministic scratch, atomic/deterministic row tiling, timing and tuning controls, hardened ownership/shape checks | `src/metal_host.hpp` | **locally built and exercised on M4 Max** across all fixtures and modes; deterministic output bit-stable across 100 repeats and tile sizes |
 | Metal fixture runner (repository-reproducible validation; runtime-compiles the shader when the offline toolchain is absent) | `src/main_metal.cpp`, Metal CTests | **passing locally on M4 Max**; pinned metal-cpp headers are included |
-| Persistent Phase 2 benchmark, hashed hot/stress generators, shuffled tuning runner, CPU baseline, JSON Schema and result summary | `src/main_benchmark.cpp`, `benchmarks/phase2_*`, `benchmarks/results/` | **verified**; 19.39× steady-state speedup on the documented M4 Max stress run; full upstream dataset matrix remains Phase 4 |
+| Persistent benchmark, hashed stress/wide/multiclass generators, blocked-shuffle runner, CPU/SHAP/power tooling, schemas and raw results | `src/main_benchmark.cpp`, `benchmarks/phase2_*`, `benchmarks/results/` | **verified**; 19.39× original stress result, 22× wide/multiclass results; privileged power trace still pending |
+| Pip-installable Python API | `pyproject.toml`, `bindings/python_module.cpp`, `python/metal_treeshap/` | **wheel built and tested on M4 Max**; JSON/dict/Booster/sklearn sources, NumPy output, packaged extractor and shader |
 
 ## Quickstart (any platform — the portable core)
 
@@ -82,9 +91,29 @@ python tests/test_fixture.py build/reference_cli --metal-cli build/metal_cli \
 ```
 
 The production throughput default is plain float atomics, shared model storage, 256 rows per
-SIMD-group, and 256 threads per threadgroup. Use `--accumulation deterministic` for fixed-order,
-bit-repeatable output (256 MiB scratch budget by default), or `--accumulation simdgroup` to test
-explicit pre-aggregation on another GPU/model.
+SIMD-group, 256 threads per threadgroup, and full dispatch (`atomic_tile_rows=0`). Use
+`--accumulation deterministic` for precise-Kahan, fixed-order, bit-repeatable output (256 MiB
+scratch budget by default), or `--accumulation simdgroup` to test explicit pre-aggregation on
+another GPU/model. No model-shape auto-switch is enabled because atomics won every measured
+workload family.
+
+## Python `MetalTreeExplainer`
+
+```bash
+python3 -m pip install build
+python3 -m build --wheel
+python3 -m pip install dist/metal_treeshap-*.whl
+```
+
+```python
+from metal_treeshap import MetalTreeExplainer
+
+explainer = MetalTreeExplainer.from_xgboost("model.json")
+phis = explainer.explain(X)
+```
+
+`from_paths` is also available and requires explicit per-group intercepts. The package targets
+macOS 13+ on ARM64 and runtime-compiles the bundled shader when an offline metallib is absent.
 
 ## Reproduce the Phase 2 benchmark
 
@@ -94,7 +123,7 @@ python3 benchmarks/phase2_run.py build/phase2_benchmark \
   /tmp/metal-treeshap-phase2/stress --kernel shaders/treeshap.metal \
   --output /tmp/metal-treeshap-phase2/results.json \
   --rows-per-simdgroup 256,1024 --threads-per-threadgroup 64,256 \
-  --accumulations atomic,simdgroup,deterministic --rounds 3
+  --accumulations atomic,simdgroup,deterministic --atomic-tiling-sweep --rounds 3
 ```
 
 ## Repository hygiene
@@ -118,5 +147,5 @@ xgboost model (or saved .json) ──tools/extract_paths.py──► paths + per
         shuffled-order mode                              compiled-model host (persistent buffers)
                     │                                                │
                     └──────── numerically matched phis ─────────────┘
-                    (golden + fixture + property + performance suites; Phase 2 complete)
+                    (golden + fixture + property + performance + wheel suites; Phase 2.1)
 ```

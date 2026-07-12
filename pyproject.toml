@@ -1,0 +1,55 @@
+[build-system]
+requires = [
+  "scikit-build-core>=1.0,<2",
+  "nanobind>=2.4,<3",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "metal-treeshap"
+version = "0.1.0"
+description = "TreeSHAP inference accelerated by Apple GPUs through Metal"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "metal-treeshap contributors" }]
+dependencies = ["numpy>=1.24"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: MacOS :: MacOS X",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+xgboost = ["xgboost>=2.0"]
+test = ["pytest>=8", "xgboost>=2.0"]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+wheel.packages = ["python/metal_treeshap"]
+build.targets = ["_native"]
+sdist.include = [
+  "bindings/**",
+  "include/**",
+  "python/**",
+  "shaders/treeshap.metal",
+  "src/metal_host.hpp",
+  "third_party/metal-cpp/**",
+  "tools/extract_paths.py",
+  "CMakeLists.txt",
+  "LICENSE",
+  "NOTICE",
+  "README.md",
+]
+
+[tool.scikit-build.cmake.define]
+METAL_TREESHAP_BUILD_PYTHON = true
+CMAKE_OSX_ARCHITECTURES = "arm64"
+CMAKE_OSX_DEPLOYMENT_TARGET = "13.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

@@ -69,15 +69,22 @@ if(APPLE)
 
   if(METAL_TOOLCHAIN_OK)
     set(METALLIB ${CMAKE_CURRENT_BINARY_DIR}/treeshap.metallib)
+    set(PRECISE_METALLIB ${CMAKE_CURRENT_BINARY_DIR}/treeshap_precise.metallib)
     add_custom_command(
-      OUTPUT ${METALLIB}
+      OUTPUT ${METALLIB} ${PRECISE_METALLIB}
       COMMAND xcrun -sdk macosx metal -std=metal3.0 -O2
               -c ${CMAKE_CURRENT_SOURCE_DIR}/shaders/treeshap.metal
               -o ${CMAKE_CURRENT_BINARY_DIR}/treeshap.air
       COMMAND xcrun -sdk macosx metallib ${CMAKE_CURRENT_BINARY_DIR}/treeshap.air -o ${METALLIB}
+      COMMAND xcrun -sdk macosx metal -std=metal3.0 -O2 -fno-fast-math
+              -c ${CMAKE_CURRENT_SOURCE_DIR}/shaders/treeshap.metal
+              -o ${CMAKE_CURRENT_BINARY_DIR}/treeshap_precise.air
+      COMMAND xcrun -sdk macosx metallib
+              ${CMAKE_CURRENT_BINARY_DIR}/treeshap_precise.air
+              -o ${PRECISE_METALLIB}
       DEPENDS shaders/treeshap.metal
-      COMMENT "Compiling treeshap.metal -> treeshap.metallib")
-    add_custom_target(metallib ALL DEPENDS ${METALLIB})
+      COMMENT "Compiling fast and precise TreeSHAP metallibs")
+    add_custom_target(metallib ALL DEPENDS ${METALLIB} ${PRECISE_METALLIB})
   else()
     message(STATUS "Offline Metal toolchain unusable or disabled (probe compile failed); "
                    "skipping metallib. metal_cli will runtime-compile "
@@ -169,6 +176,21 @@ if(APPLE)
       PROPERTIES ENVIRONMENT
                  "METAL_TREESHAP_KERNEL=${CMAKE_CURRENT_SOURCE_DIR}/shaders/treeshap.metal")
   endforeach()
+
+  # Explicitly exercise multiple disjoint atomic row dispatches, including a partial
+  # final tile, across every frozen fixture rather than only the small host unit model.
+  add_test(NAME fixture_metal_atomic_tiled_rps7
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_fixture.py
+                   $<TARGET_FILE:reference_cli>
+                   --metal-cli $<TARGET_FILE:metal_cli>
+                   --metal-rows-per-simdgroup 7
+                   --metal-atomic-tile-rows 2
+                   --metal-accumulation atomic)
+  set_tests_properties(
+    fixture_metal_atomic_tiled_rps7
+    PROPERTIES ENVIRONMENT
+               "METAL_TREESHAP_KERNEL=${CMAKE_CURRENT_SOURCE_DIR}/shaders/treeshap.metal")
 endif()
 
 # Portable fixture regression (needs python3 + numpy; no xgboost).
@@ -180,3 +202,50 @@ add_test(NAME phase2_workload_generator
                  ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/phase2_workloads.py hot
                  ${CMAKE_CURRENT_BINARY_DIR}/phase2_hot_smoke
                  --trees 4 --rows 9 --seed 7 --force)
+
+# ---- Optional Python package (enabled automatically by scikit-build-core) ----
+set(_python_binding_default OFF)
+if(DEFINED SKBUILD AND SKBUILD)
+  set(_python_binding_default ON)
+endif()
+option(METAL_TREESHAP_BUILD_PYTHON
+       "Build the nanobind MetalTreeExplainer extension"
+       ${_python_binding_default})
+if(METAL_TREESHAP_BUILD_PYTHON)
+  if(NOT APPLE)
+    message(FATAL_ERROR "MetalTreeShap Python bindings require macOS/Apple Silicon")
+  endif()
+  find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
+  find_package(nanobind CONFIG QUIET)
+  if(NOT nanobind_FOUND)
+    execute_process(
+      COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+      RESULT_VARIABLE _nanobind_rc
+      OUTPUT_VARIABLE _nanobind_dir
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET)
+    if(_nanobind_rc EQUAL 0)
+      list(PREPEND CMAKE_PREFIX_PATH "${_nanobind_dir}")
+      find_package(nanobind CONFIG QUIET)
+    endif()
+  endif()
+  if(NOT nanobind_FOUND)
+    message(FATAL_ERROR
+            "METAL_TREESHAP_BUILD_PYTHON=ON requires nanobind. "
+            "Install it with `python -m pip install nanobind`, or leave the option OFF "
+            "for a normal C++-only build.")
+  endif()
+
+  nanobind_add_module(_native NOMINSIZE bindings/python_module.cpp)
+  target_include_directories(_native PRIVATE ${METAL_CPP_DIR})
+  target_link_libraries(_native PRIVATE "-framework Metal" "-framework Foundation"
+                                        "-framework QuartzCore")
+  install(TARGETS _native LIBRARY DESTINATION metal_treeshap)
+  install(FILES shaders/treeshap.metal
+          DESTINATION metal_treeshap)
+  # Package the exact extractor used by repository validation rather than maintaining
+  # a second implementation that could drift in tree_info/DART/intercept semantics.
+  install(FILES tools/extract_paths.py
+          DESTINATION metal_treeshap
+          RENAME _extract_paths.py)
+endif()

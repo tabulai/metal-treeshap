@@ -102,6 +102,13 @@ int main(int argc, char** argv) {
   Check(explainer.deterministic_scratch_budget_bytes() ==
             Explainer::kDefaultDeterministicScratchBudgetBytes,
         "wrong default deterministic scratch budget");
+  Check(explainer.atomic_tile_rows() == 0, "wrong default atomic tile rows");
+  Throws(
+      [&] {
+        explainer.set_atomic_tile_rows(
+            static_cast<size_t>(std::numeric_limits<uint32_t>::max()) + 1);
+      },
+      "oversized atomic tile accepted");
 
   // Empty models are a valid bias-only fast path and never dispatch Metal work.
   auto empty = explainer.Compile({}, 2, 2, {0.25, -0.5});
@@ -203,6 +210,28 @@ int main(int argc, char** argv) {
       }
     }
   }
+
+  // Atomic tiling reuses the deterministic row-offset convention, but writes directly
+  // into disjoint output rows. Pin both partial final tiles and full-dispatch equality.
+  explainer.set_accumulation_mode(AccumulationMode::kAtomic);
+  explainer.set_threads_per_threadgroup(256);
+  explainer.set_rows_per_simdgroup(7);
+  std::vector<float> atomic_full(6, -5.0f);
+  explainer.set_atomic_tile_rows(0);
+  const ExplainTimings atomic_full_tm =
+      explainer.Explain(*model, x.data(), 3, atomic_full.data());
+  Check(atomic_full_tm.atomic_tile_rows == 3 && atomic_full_tm.atomic_tiles == 1,
+        "full atomic dispatch metadata mismatch");
+  std::vector<float> atomic_tiled(6, -6.0f);
+  explainer.set_atomic_tile_rows(2);
+  const ExplainTimings atomic_tiled_tm =
+      explainer.Explain(*model, x.data(), 3, atomic_tiled.data());
+  Check(atomic_tiled_tm.atomic_tile_rows == 2 && atomic_tiled_tm.atomic_tiles == 2,
+        "tiled atomic dispatch metadata mismatch");
+  Check(std::memcmp(atomic_full.data(), atomic_tiled.data(),
+                    atomic_full.size() * sizeof(float)) == 0,
+        "atomic output changed with row tiling");
+  explainer.set_atomic_tile_rows(0);
 
   // Force exactly one row per deterministic tile, then verify bitwise repeatability
   // across 100 dispatches and invariance against a single-tile run. This exercises

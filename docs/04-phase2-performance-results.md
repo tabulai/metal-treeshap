@@ -1,5 +1,11 @@
 # Phase 2 performance results
 
+> This document preserves the original Phase 2 baseline and its raw artifacts. Phase 2.1
+> subsequently added atomic row-tiling experiments, a precise Kahan deterministic reducer,
+> wide-feature and multiclass workloads, Python bindings, and an optional SHAP baseline. The
+> current production decisions and measurements are in
+> [`05-phase21-production-results.md`](05-phase21-production-results.md).
+
 ## Material Passport
 
 - Origin Skill: `academic-research-suite/experiment-agent`
@@ -130,10 +136,11 @@ each `(row, group, feature)` segment in fixed path order. With a 256 MiB budget 
 **2.08× slower** than selected atomics but still about 9.3× faster than XGBoost CPU.
 
 It produces one bit hash and zero pairwise spread across repeated stress runs, 100 hot
-runs, and host tests that vary tile size. Its max absolute deviation is 1.08e-4; fixed
-ordering guarantees repeatability, not equality to an fp64 oracle. Reducing the scratch
-budget to 64 MiB raises the tile count from 37 to 147 and the median to 2.2472 s, so the
-256 MiB default is retained.
+runs, and host tests that vary tile size. This original plain reducer's max absolute
+deviation is 1.08e-4; fixed ordering guarantees repeatability, not equality to an fp64
+oracle. Phase 2.1 replaces the final summation with precise-math Kahan compensation and
+reduces that deviation to 1.001e-5. Reducing the scratch budget to 64 MiB raises the tile
+count from 37 to 147 and the original median to 2.2472 s, so the 256 MiB default is retained.
 
 ## Reproduction
 

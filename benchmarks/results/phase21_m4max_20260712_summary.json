@@ -1,0 +1,105 @@
+{
+  "schema": "metal_treeshap.phase21.summary.v1",
+  "created_local_date": "2026-07-12",
+  "environment": {
+    "machine": "Apple M4 Max",
+    "macos": "26.2 (25C56)",
+    "baseline_commit": "d9775da",
+    "branch": "codex/phase2-production",
+    "metal_compilation": "runtime source; precise reducer compiled separately with fast math disabled",
+    "power_capture": {
+      "status": "skipped",
+      "reason": "passwordless sudo was unavailable; the runner did not prompt"
+    }
+  },
+  "production_decision": {
+    "accumulation": "atomic",
+    "model_storage": "shared",
+    "rows_per_simdgroup": 256,
+    "threads_per_threadgroup": 256,
+    "atomic_tile_rows": 0,
+    "automatic_shape_switch": false,
+    "reason": "Atomic accumulation won the stress, wide-feature, and multiclass workloads. Blocked finalist rounds did not reproduce a tiling benefit. Deterministic Kahan remains an explicit repeatability/accuracy mode."
+  },
+  "atomic_tiling_finalists": {
+    "workload": "stress500; 8192 rows; 500 depth-8 trees; 12 features",
+    "design": "7 outer-round temporal blocks; order shuffled within each block; 3 warmups and 5 timed calls per job",
+    "full_dispatch_wall_median_s": 0.496373584,
+    "tile_2048_wall_median_s": 0.507291917,
+    "tile_4096_wall_median_s": 0.504489125,
+    "paired_speedup_median": {
+      "2048_vs_full": 0.992586823,
+      "4096_vs_full": 0.983418765
+    },
+    "round_wins_out_of_7": {
+      "2048": 3,
+      "4096": 1
+    },
+    "conclusion": "Keep full dispatch by default; retain tiling as an explicit tuning control."
+  },
+  "deterministic_kahan": {
+    "workload": "stress500",
+    "wall_median_s": 1.359908292,
+    "gpu_median_s": 1.353812042,
+    "max_abs_error": 0.000010013580322265625,
+    "mean_abs_error": 0.00000011088476405129999,
+    "unique_output_hashes_per_job": 1,
+    "previous_plain_reducer_max_abs_error": 0.000107765,
+    "error_reduction_factor_approx": 10.76
+  },
+  "workload_modes": {
+    "wide256": {
+      "shape": "8192 rows; 400 depth-6 trees; 256 features; 1 output",
+      "atomic_wall_median_s": 0.204563542,
+      "simdgroup_wall_median_s": 0.475241167,
+      "deterministic_wall_median_s": 0.307773042,
+      "xgboost_3_1_2_wall_median_s": 4.629013416,
+      "metal_vs_xgboost_speedup": 22.628731253,
+      "max_abs_error": {
+        "atomic": 0.000008344650268554688,
+        "simdgroup": 0.000005245208740234375,
+        "deterministic": 0.0000025033950805664062
+      }
+    },
+    "multiclass8": {
+      "shape": "8192 rows; 150 boosting rounds; 32 features; 8 outputs",
+      "atomic_wall_median_s": 0.644697292,
+      "simdgroup_wall_median_s": 1.179473917,
+      "deterministic_wall_median_s": 0.91490525,
+      "xgboost_3_1_2_wall_median_s": 14.168569125,
+      "metal_vs_xgboost_speedup": 21.977088008,
+      "max_abs_error": {
+        "atomic": 0.000008702278137207031,
+        "simdgroup": 0.000005125999450683594,
+        "deterministic": 0.000001430511474609375
+      }
+    }
+  },
+  "optional_shap_baseline": {
+    "workload": "stress500",
+    "shap_version": "0.52.0",
+    "xgboost_version": "3.3.0",
+    "backend": "shap.explainers._tree.TreeExplainer / TreeEnsemble(model_type=xgboost)",
+    "shap_wall_median_s": 7.603897625,
+    "native_xgboost_wall_median_s": 7.376665542,
+    "metal_full_dispatch_wall_median_s": 0.496373584,
+    "metal_vs_shap_speedup": 15.318903774,
+    "metal_vs_native_xgboost_3_3_speedup": 14.861117499
+  },
+  "workload_sha256": {
+    "stress_paths_csv": "682bef155e54e809000152b45068249286cfd924ec0ae21d231bb50832b5dce1",
+    "stress_x_csv": "5cbcd8769d4500ac59c3499fe2b3356c1e9fdc4325e16948ddc50d06711085f3",
+    "wide_paths_csv": "a729bc29aaeab9c11f2f0c09509627d01ac817a968e47f4e145571c54cc543e4",
+    "wide_x_csv": "1a55e67f98d83bef6584df19573826cc179bdcd86134e2bbce78e0e92d4dbee8",
+    "multiclass_paths_csv": "b655f49bba925a00f93b5704783279a478edf58a179ecdd1ec332ab92f3cbb4a",
+    "multiclass_x_csv": "67fb5b1c155880f4c586f2d7ab9eec490464b5ad32c3ef2af35e053aeb0a3144"
+  },
+  "tested_shader_sha256": "2b265657e042d169fa86d0538f0aa053a9e872f4d461541297d2120bed01e9b1",
+  "raw_artifact_sha256": {
+    "stress_atomic_tiling.json": "b2eb36b4bc799f3a373e299318df618a50161b624983445b1a2948ddf8b5de31",
+    "stress_atomic_finalists.json": "d241fe62db0a8269b12b70ae5737b6295ae036a79ee26716ea931576839ffe3d",
+    "wide_multiclass_modes.json": "51d2a6e152409f1855d396568f5acfc29136443c5acc63a3c8782f6488a89a70",
+    "stress_deterministic_kahan.json": "4e18298fe136574601ac58510505686d90e6c6c562044c30849804656d04907b",
+    "stress_cpu_shap.json": "3e3fa41a03418d822d8d7690a08d7c9df84181c50b306f629d4444f4b87a953f"
+  }
+}

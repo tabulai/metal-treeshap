@@ -1,0 +1,82 @@
+{
+  "backend_provenance": {
+    "internal_model": "shap.explainers._tree.TreeEnsemble",
+    "internal_model_type": "xgboost",
+    "note": "TreeExplainer may dispatch to compiled SHAP/XGBoost-specific code; the recorded classes and method identify the observed path without claiming an independent pure-Python implementation.",
+    "public_explainer": "shap.explainers._tree.TreeExplainer",
+    "timed_method_module": "shap.explainers._tree",
+    "timed_method_qualname": "TreeExplainer.shap_values"
+  },
+  "created_utc": "2026-07-12T23:41:48Z",
+  "design": {
+    "check_additivity": false,
+    "feature_perturbation": "tree_path_dependent",
+    "iterations": 3,
+    "model_output": "raw",
+    "setup_excluded": [
+      "model load",
+      "matrix load",
+      "TreeExplainer construction"
+    ],
+    "timed_call": "TreeExplainer.shap_values(X, check_additivity=False)",
+    "warmups": 1
+  },
+  "environment": {
+    "machine": "arm64",
+    "nthread": 16,
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "shap": "0.52.0",
+    "shap_distribution": "0.52.0",
+    "xgboost": "3.3.0",
+    "xgboost_distribution": "3.3.0"
+  },
+  "inputs": {
+    "available_rows": 8192,
+    "cols": 12,
+    "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+    "groups": 1,
+    "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+    "model": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/model.json",
+    "sha256": {
+      "expected": "abd3c5bf90493c9252c1e329856c2b2ea16a7b6536409c1b0dfdb84273bb507b",
+      "matrix": "5cbcd8769d4500ac59c3499fe2b3356c1e9fdc4325e16948ddc50d06711085f3",
+      "model": "7373d237cf01cf32e1ceec1f308c284ba3822e843052636cf95c1a20dcc33bc3"
+    }
+  },
+  "results": [
+    {
+      "accuracy": {
+        "expected_value_max_abs": 0.0,
+        "feature_max_abs": 1.9073486328125e-06,
+        "feature_mean_abs": 2.5945530168769437e-08
+      },
+      "repeatability": {
+        "hash_algorithm": "sha256-array-bytes",
+        "hashes": [
+          "2857c2c9cacd7eab93e1baa0211c82ee1bafab5a64b00472a846a4b924cf16a8",
+          "2857c2c9cacd7eab93e1baa0211c82ee1bafab5a64b00472a846a4b924cf16a8",
+          "2857c2c9cacd7eab93e1baa0211c82ee1bafab5a64b00472a846a4b924cf16a8"
+        ],
+        "unique_hashes": 1
+      },
+      "rows": 8192,
+      "throughput_rows_per_s": 1077.342226859241,
+      "timing_s": {
+        "median": 7.603897624881938,
+        "p10": 7.435322725074366,
+        "p90": 7.9493743585888295,
+        "samples": [
+          8.035743542015553,
+          7.603897624881938,
+          7.393179000122473
+        ]
+      }
+    }
+  ],
+  "schema": "metal_treeshap.phase2.cpu_shap.v1",
+  "setup_s": {
+    "load_and_explainer": 0.35640691709704697
+  },
+  "status": "ok"
+}
