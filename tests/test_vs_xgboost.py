@@ -27,11 +27,15 @@ Usage: python tests/test_vs_xgboost.py [path/to/reference_cli] [--update-fixture
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import platform
+import shlex
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 
 import numpy as np
 import xgboost as xgb
@@ -40,9 +44,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 from extract_paths import extract_model, write_paths_csv  # noqa: E402
 
 ARGS = sys.argv[1:]
+KNOWN_FLAGS = {"--update-fixtures", "--write-results"}
+unknown_flags = [a for a in ARGS if a.startswith("--") and a not in KNOWN_FLAGS]
+if unknown_flags:
+    raise SystemExit(f"unknown option(s): {', '.join(unknown_flags)}")
 UPDATE_FIXTURES = "--update-fixtures" in ARGS
 WRITE_RESULTS = "--write-results" in ARGS
 POS = [a for a in ARGS if not a.startswith("--")]
+if len(POS) > 1:
+    raise SystemExit(f"unexpected positional arguments: {POS[1:]}")
 CLI = POS[0] if POS else "./reference_cli"
 HERE = os.path.dirname(os.path.abspath(__file__))
 RESULTS: list[dict] = []
@@ -53,11 +63,56 @@ TOL = 1e-3  # the project's stated correctness gate (observed errors are ~1e-6..
 REL_FLOOR_FRACTION = 1e-3
 ORDER_SEEDS = 5
 
+EVIDENCE_SOURCES = (
+    os.path.join(HERE, "test_vs_xgboost.py"),
+    os.path.join(HERE, "..", "tools", "extract_paths.py"),
+    os.path.join(HERE, "..", "include", "metal_treeshap", "paths.h"),
+    os.path.join(HERE, "..", "include", "metal_treeshap", "preprocess.h"),
+    os.path.join(HERE, "..", "reference", "reference_shap.h"),
+    os.path.join(HERE, "..", "src", "main_reference.cpp"),
+)
+
 
 def run_cli(paths_csv, x_csv, num_groups, out64, out32, intercepts, seed=0):
     icept = ",".join(repr(float(v)) for v in intercepts)
     subprocess.run([CLI, paths_csv, x_csv, str(num_groups), out64, out32, icept, str(seed)],
                    check=True, capture_output=True)
+
+
+def sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def source_fingerprint() -> str:
+    """Hash the exact portable implementation/test sources used by this invocation."""
+    h = hashlib.sha256()
+    root = os.path.realpath(os.path.join(HERE, ".."))
+    for path in sorted(map(os.path.realpath, EVIDENCE_SOURCES)):
+        h.update(os.path.relpath(path, root).encode("utf-8"))
+        h.update(b"\0")
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def git_provenance() -> tuple[str, bool]:
+    """Best-effort source-repository state; the content hash above remains authoritative."""
+    root = os.path.realpath(os.path.join(HERE, ".."))
+    try:
+        head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+        dirty = bool(subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=root, text=True).strip())
+        return head, dirty
+    except (OSError, subprocess.CalledProcessError):
+        return "unavailable", True
 
 
 def make_data(objective, n_train, n_test, n_features, missing_frac, seed):
@@ -91,10 +146,37 @@ def make_data(objective, n_train, n_test, n_features, missing_frac, seed):
     return X_train, y, X_test
 
 
+def has_missing_only_path(paths) -> bool:
+    """Whether deduplication yields a positive-cover condition satisfied only by NaN."""
+    merged: dict[tuple[int, int], list] = {}
+    for e in paths:
+        if e.feature_idx < 0:
+            continue
+        key = (e.path_idx, e.feature_idx)
+        if key not in merged:
+            merged[key] = [e.lower, e.upper, e.is_missing_branch, e.zero_fraction]
+        else:
+            m = merged[key]
+            m[0] = max(m[0], e.lower)
+            m[1] = min(m[1], e.upper)
+            m[2] = m[2] and e.is_missing_branch
+            m[3] *= e.zero_fraction
+    return any(lo >= hi and missing and cover > 0.0
+               for lo, hi, missing, cover in merged.values())
+
+
 def run_case(name, objective, n_features, n_train, n_test, depth, rounds,
              missing_frac=0.0, seed=0, extra_params=None, shuffle_trials=0,
-             fixture=False):
-    X_train, y, X_test = make_data(objective, n_train, n_test, n_features, missing_frac, seed)
+             fixture=False, data_override=None, require_missing_only_path=False):
+    if data_override is None:
+        X_train, y, X_test = make_data(
+            objective, n_train, n_test, n_features, missing_frac, seed)
+    else:
+        X_train, y, X_test = data_override
+        if X_train.shape != (n_train, n_features) or X_test.shape != (n_test, n_features):
+            raise ValueError(f"{name}: data_override shapes do not match declared dimensions")
+        if y.shape != (n_train,):
+            raise ValueError(f"{name}: data_override labels do not match n_train")
     params = {"objective": objective, "max_depth": depth, "eta": 0.1, "tree_method": "hist",
               "seed": seed}
     params.update(extra_params or {})
@@ -103,6 +185,10 @@ def run_case(name, objective, n_features, n_train, n_test, depth, rounds,
     booster = xgb.train(params, xgb.DMatrix(X_train, label=y), rounds)
 
     em = extract_model(booster)
+    if require_missing_only_path:
+        assert has_missing_only_path(em.paths), (
+            f"{name}: trained model no longer contains the missing-only repeated-feature "
+            "path this regression case is intended to pin")
     num_groups = em.num_groups
     dtest = xgb.DMatrix(X_test)
     expected = booster.predict(dtest, pred_contribs=True).reshape(
@@ -168,7 +254,7 @@ def run_case(name, objective, n_features, n_train, n_test, depth, rounds,
     assert ok, f"{name}: mismatch vs xgboost (gate {TOL})"
 
 
-def check_unknown_objective_rejected():
+def check_unknown_objective_rejected() -> dict[str, str]:
     """Objectives outside the tested allowlist must be rejected, not mis-linked."""
     rng = np.random.RandomState(0)
     X = rng.randn(300, 4).astype(np.float32)
@@ -178,21 +264,38 @@ def check_unknown_objective_rejected():
                             xgb.DMatrix(X, label=y), 3)
     except xgb.core.XGBoostError:
         print("[SKIP] survival:cox did not train in this xgboost; rejection untested here")
-        return
+        return {"status": "skipped", "detail": "survival:cox did not train"}
     try:
         extract_model(booster)
     except NotImplementedError as e:
         print(f"[PASS] unknown objective rejected: {str(e)[:80]}...")
-        return
+        return {"status": "passed", "detail": "survival:cox rejected by extractor"}
     raise AssertionError("survival:cox was not rejected by the objective allowlist")
 
 
-def write_results_md():
+def write_results_md(objective_rejection: dict[str, str]):
     path = os.path.join(HERE, "RESULTS.md")
-    with open(path, "w") as f:
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    invocation = shlex.join([sys.executable, os.path.abspath(__file__), *sys.argv[1:]])
+    git_head, git_dirty = git_provenance()
+    source_sha = source_fingerprint()
+    cli_path = os.path.realpath(CLI)
+    cli_sha = sha256_file(cli_path)
+    with open(path, "w", encoding="utf-8") as f:
         f.write("# Golden test results (Phase 0.6, CPU reference pipeline)\n\n")
-        f.write(f"xgboost {xgb.__version__}, numpy {np.__version__}; correctness gate "
-                f"{TOL}.\n\n")
+        f.write("This file contains evidence produced by one local invocation only; it does "
+                "not infer results for other XGBoost versions, machines, or the Metal engine.\n\n")
+        f.write(f"- Generated (UTC): `{generated_at}`\n"
+                f"- Platform: `{platform.platform()}`\n"
+                f"- Python: `{platform.python_version()}`\n"
+                f"- xgboost: `{xgb.__version__}`\n"
+                f"- numpy: `{np.__version__}`\n"
+                f"- Git HEAD: `{git_head}` (worktree dirty: `{str(git_dirty).lower()}`)\n"
+                f"- Portable source fingerprint (SHA-256): `{source_sha}`\n"
+                f"- Reference CLI: `{cli_path}`\n"
+                f"- Reference CLI SHA-256: `{cli_sha}`\n"
+                f"- Invocation: `{invocation}`\n"
+                f"- Correctness gate: `{TOL}`\n\n")
         f.write("`err_vs_xgb` = max |phi − xgboost pred_contribs| (fp64 accumulation, "
                 "intercept plumbed through the pipeline). `margin_err` = max |Σ phis − "
                 "margin|. `fp32_abs` = max |fp32-accumulated − fp64-accumulated|. "
@@ -211,16 +314,11 @@ def write_results_md():
                     f"{r['depth']} | {r['paths']} | {r['err_vs_xgb']:.2e} | "
                     f"{r['margin_err']:.2e} | {r['err_fp32']:.2e} | "
                     f"{r['rel_fp32_elem']:.2e} | {spread} |\n")
-        f.write("\nObjective links verified empirically (identity/logit/log, see "
-                "tools/extract_paths.py `_MARGIN_LINK`); objectives outside the allowlist "
-                "are rejected (checked with survival:cox). Cross-version: suite verified "
-                "on xgboost 2.0.3 and 3.1.2. External M4 Max validation (v3): the "
-                "compiled-model host logic ran ALL SIX frozen fixtures end-to-end "
-                "(shader runtime-compiled from source) with max Metal error 6.5e-6, "
-                "across rows_per_simdgroup in {1, 7, 1024}, including empty-model, "
-                "zero-row, intercept, repeated-call and invalid-tuning behavior. "
-                "src/main_metal.cpp + `test_fixture.py --metal-cli` make that run "
-                "repository-reproducible.\n")
+        f.write("\nThis invocation exercised every identity/logit/log objective case listed "
+                "above against XGBoost `pred_contribs`; see `tools/extract_paths.py` "
+                "`_MARGIN_LINK`. Unsupported-objective check: "
+                f"**{objective_rejection['status']}** "
+                f"({objective_rejection['detail']}).\n")
     print(f"wrote {path}")
 
 
@@ -234,6 +332,18 @@ if __name__ == "__main__":
              extra_params={"num_parallel_tree": 2}, fixture=True)
     run_case("dart", "reg:squarederror", 8, 2000, 200, 4, 30, seed=6,
              extra_params={"booster": "dart", "rate_drop": 0.2}, fixture=True)
+    # Deterministic real-model regression for XGBoost's missing-only path representation.
+    # The root and child split f0 at the same threshold with opposite numeric branches,
+    # while both route NaN toward the -3 leaf.  Dedup therefore yields [1,1), missing=true.
+    missing_X = np.array([0.0] * 5 + [1.0] * 5 + [np.nan] * 5,
+                         dtype=np.float32).reshape(-1, 1)
+    missing_y = np.array([-10.0] * 5 + [10.0] * 5 + [-3.0] * 5, dtype=np.float32)
+    missing_test = np.array([[0.0], [1.0], [np.nan], [0.5], [2.0]], dtype=np.float32)
+    run_case("missing-only-path", "reg:squarederror", 1, 15, 5, 2, 1, seed=0,
+             extra_params={"eta": 1.0, "min_child_weight": 0.0, "lambda": 0.0,
+                           "gamma": 0.0, "base_score": 0.0, "nthread": 1},
+             fixture=True, data_override=(missing_X, missing_y, missing_test),
+             require_missing_only_path=True)
     run_case("stress-depth8x500", "reg:squarederror", 12, 4000, 200, 8, 500, seed=4,
              shuffle_trials=ORDER_SEEDS)
 
@@ -250,9 +360,9 @@ if __name__ == "__main__":
     run_case("obj-quantile", "reg:quantileerror", seed=19,
              extra_params={"quantile_alpha": 0.5}, **mini)
 
-    check_unknown_objective_rejected()
+    objective_rejection = check_unknown_objective_rejected()
     if WRITE_RESULTS:
-        write_results_md()
+        write_results_md(objective_rejection)
     print("ALL GOLDEN TESTS PASSED"
           + ("" if not UPDATE_FIXTURES else " (fixtures updated)")
           + ("" if not WRITE_RESULTS else " (RESULTS.md updated)"))

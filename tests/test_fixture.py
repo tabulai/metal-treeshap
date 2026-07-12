@@ -14,10 +14,14 @@ tools/make_deep_fixture.py — never by an ordinary verification run.
 
 DUAL-ENGINE MODE (macOS): when METAL_CLI is set (env var, or --metal-cli <path>), every
 fixture ALSO runs through the Metal engine (src/main_metal.cpp) and is compared against
-the same frozen expectations — the repository-reproducible form of the validation_v3
-on-device runs (observed Metal errors there: <= 6.5e-6 across all six fixtures).
+the same frozen expectations — the repository-reproducible form of the on-device validation
+runs (observed Metal errors: <= 6.505e-6 across all seven current fixtures).
 
 Usage: python tests/test_fixture.py [path/to/reference_cli] [--metal-cli path/to/metal_cli]
+             [--metal-rows-per-simdgroup N]
+             [--metal-accumulation atomic|simdgroup|deterministic]
+             [--metal-deterministic-scratch-mib N]
+             [--metal-model-storage shared|private]
 """
 
 from __future__ import annotations
@@ -35,9 +39,59 @@ from extract_paths import extract_model, write_paths_csv  # noqa: E402
 
 ARGS = sys.argv[1:]
 METAL_CLI = os.environ.get("METAL_CLI")
+METAL_ROWS_PER_SIMDGROUP = os.environ.get("METAL_ROWS_PER_SIMDGROUP", "1024")
+METAL_ACCUMULATION = os.environ.get("METAL_ACCUMULATION", "atomic")
+METAL_DETERMINISTIC_SCRATCH_MIB = os.environ.get(
+    "METAL_DETERMINISTIC_SCRATCH_MIB", "256")
+METAL_MODEL_STORAGE = os.environ.get("METAL_MODEL_STORAGE", "shared")
 if "--metal-cli" in ARGS:
-    METAL_CLI = ARGS[ARGS.index("--metal-cli") + 1]
-    del ARGS[ARGS.index("--metal-cli"):ARGS.index("--metal-cli") + 2]
+    idx = ARGS.index("--metal-cli")
+    if idx + 1 >= len(ARGS):
+        raise SystemExit("--metal-cli requires a path")
+    METAL_CLI = ARGS[idx + 1]
+    del ARGS[idx:idx + 2]
+if "--metal-rows-per-simdgroup" in ARGS:
+    idx = ARGS.index("--metal-rows-per-simdgroup")
+    if idx + 1 >= len(ARGS):
+        raise SystemExit("--metal-rows-per-simdgroup requires a value")
+    METAL_ROWS_PER_SIMDGROUP = ARGS[idx + 1]
+    del ARGS[idx:idx + 2]
+if "--metal-accumulation" in ARGS:
+    idx = ARGS.index("--metal-accumulation")
+    if idx + 1 >= len(ARGS):
+        raise SystemExit("--metal-accumulation requires a value")
+    METAL_ACCUMULATION = ARGS[idx + 1]
+    del ARGS[idx:idx + 2]
+if "--metal-deterministic-scratch-mib" in ARGS:
+    idx = ARGS.index("--metal-deterministic-scratch-mib")
+    if idx + 1 >= len(ARGS):
+        raise SystemExit("--metal-deterministic-scratch-mib requires a value")
+    METAL_DETERMINISTIC_SCRATCH_MIB = ARGS[idx + 1]
+    del ARGS[idx:idx + 2]
+if "--metal-model-storage" in ARGS:
+    idx = ARGS.index("--metal-model-storage")
+    if idx + 1 >= len(ARGS):
+        raise SystemExit("--metal-model-storage requires a value")
+    METAL_MODEL_STORAGE = ARGS[idx + 1]
+    del ARGS[idx:idx + 2]
+try:
+    METAL_ROWS_PER_SIMDGROUP_INT = int(METAL_ROWS_PER_SIMDGROUP)
+except ValueError as exc:
+    raise SystemExit("Metal rows_per_simdgroup must be an integer") from exc
+if METAL_ROWS_PER_SIMDGROUP_INT <= 0 or METAL_ROWS_PER_SIMDGROUP_INT > 2**32 - 1:
+    raise SystemExit("Metal rows_per_simdgroup must be in [1, 2^32-1]")
+if METAL_ACCUMULATION not in {"atomic", "simdgroup", "deterministic"}:
+    raise SystemExit("Metal accumulation must be atomic, simdgroup, or deterministic")
+if METAL_MODEL_STORAGE not in {"shared", "private"}:
+    raise SystemExit("Metal model storage must be shared or private")
+try:
+    METAL_DETERMINISTIC_SCRATCH_MIB_INT = int(METAL_DETERMINISTIC_SCRATCH_MIB)
+except ValueError as exc:
+    raise SystemExit("Metal deterministic scratch MiB must be an integer") from exc
+if METAL_DETERMINISTIC_SCRATCH_MIB_INT <= 0:
+    raise SystemExit("Metal deterministic scratch MiB must be > 0")
+if len(ARGS) > 1:
+    raise SystemExit(f"unexpected arguments: {ARGS[1:]}")
 CLI = ARGS[0] if ARGS else "./reference_cli"
 FX_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
@@ -73,7 +127,12 @@ def run_fixture(case_dir: str) -> None:
         metal_err = None
         if METAL_CLI:
             outm = os.path.join(td, "om.csv")
-            subprocess.run([METAL_CLI, paths_csv, x_csv, str(num_groups), outm, icept],
+            subprocess.run([METAL_CLI, paths_csv, x_csv, str(num_groups), outm, icept,
+                            "--rows-per-simdgroup", str(METAL_ROWS_PER_SIMDGROUP_INT),
+                            "--accumulation", METAL_ACCUMULATION,
+                            "--deterministic-scratch-mib",
+                            str(METAL_DETERMINISTIC_SCRATCH_MIB_INT),
+                            "--model-storage", METAL_MODEL_STORAGE],
                            check=True, capture_output=True)
             phism = np.loadtxt(outm, delimiter=",").reshape(n_test, per_row)
             metal_err = float(np.max(np.abs(phism - expected.reshape(n_test, per_row))))
@@ -85,7 +144,9 @@ def run_fixture(case_dir: str) -> None:
     print(f"[{status}] fixture '{meta['case']}' ({kind}"
           + (f", frozen with xgboost {meta['xgboost_version']}" if "xgboost_version" in meta
              else "") + f"): reference max|phi - expected| = {err:.3e}"
-          + (f", METAL max|phi - expected| = {metal_err:.3e}" if metal_err is not None
+          + (f", METAL[{METAL_ACCUMULATION},{METAL_MODEL_STORAGE},"
+             f"rps={METAL_ROWS_PER_SIMDGROUP_INT}] "
+             f"max|phi - expected| = {metal_err:.3e}" if metal_err is not None
              else "") + f" (tol {tol})")
     assert ok, f"fixture regression in {case_dir}"
 
@@ -98,5 +159,7 @@ if __name__ == "__main__":
                          "--update-fixtures and tools/make_deep_fixture.py first")
     for case in cases:
         run_fixture(os.path.join(FX_ROOT, case))
-    engines = "reference" + (" + Metal" if METAL_CLI else "")
+    engines = "reference" + (f" + Metal[{METAL_ACCUMULATION},{METAL_MODEL_STORAGE},"
+                             f"rps={METAL_ROWS_PER_SIMDGROUP_INT}]"
+                             if METAL_CLI else "")
     print(f"ALL {len(cases)} FIXTURE TESTS PASSED ({engines})")

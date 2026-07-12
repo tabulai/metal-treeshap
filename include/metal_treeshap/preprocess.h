@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -143,14 +144,16 @@ inline void ValidatePaths(const std::vector<PathElement>& deduplicated,
           e.feature_idx > 0x7FFFFFFFll) {
         throw std::invalid_argument("feature_idx out of range");
       }
-      // MERGED-interval check: two individually valid raw intervals on a repeated
-      // feature (e.g. [0,1) and [2,3)) intersect to an inverted/empty interval after
-      // Merge. Real tree paths nest their conditions, so an empty merged interval means
-      // corrupted input, not a legal model.
-      if (e.split_condition.feature_lower_bound >= e.split_condition.feature_upper_bound) {
+      // A merged condition is unsatisfiable only when BOTH its numeric interval is empty
+      // and NaN cannot follow it.  In particular, XGBoost can emit a missing-only leaf by
+      // splitting the same feature at the same threshold twice with opposite numeric
+      // branches while routing missing values down both edges.  That produces [t,t) with
+      // is_missing_branch=true and is a legal, positive-cover path.
+      if (e.split_condition.feature_lower_bound >= e.split_condition.feature_upper_bound &&
+          !e.split_condition.is_missing_branch) {
         throw std::invalid_argument(
-            "merged split interval is empty (lower >= upper) — repeated-feature "
-            "conditions on a real tree path must nest");
+            "merged split condition is unsatisfiable (empty numeric interval and "
+            "missing values do not follow the path)");
       }
     }
     if (!std::isfinite(e.zero_fraction) || e.zero_fraction < 0.0 || e.zero_fraction > 1.0) {
@@ -266,18 +269,39 @@ inline void SortPathsByBin(std::vector<PathElement>* paths, const BinMap& bin_ma
   });
 }
 
+// Convert per-bin size_t counts to the uint32 prefix offsets consumed by the shader.  Kept
+// separate so the overflow boundary can be tested without allocating UINT32_MAX elements.
+inline std::vector<uint32_t> CheckedBinSegmentsFromCounts(
+    const std::vector<size_t>& bin_counts) {
+  std::vector<uint32_t> segments(bin_counts.size() + 1, 0);
+  size_t total = 0;
+  constexpr size_t kMaxOffset = std::numeric_limits<uint32_t>::max();
+  for (size_t i = 0; i < bin_counts.size(); ++i) {
+    if (total > kMaxOffset || bin_counts[i] > kMaxOffset - total) {
+      throw std::overflow_error("deduplicated path element count does not fit uint32 offsets");
+    }
+    total += bin_counts[i];
+    segments[i + 1] = static_cast<uint32_t>(total);
+  }
+  return segments;
+}
+
 // [start, end) offsets of each bin in the sorted element array. Mirrors GetBinSegments.
 inline std::vector<uint32_t> GetBinSegments(const std::vector<PathElement>& sorted_paths,
                                             const BinMap& bin_map) {
+  // The shader consumes uint32 offsets.  Guard the aggregate before counting, then retain
+  // size_t counters until the checked conversion so neither count nor prefix sum can wrap.
+  if (sorted_paths.size() > std::numeric_limits<uint32_t>::max()) {
+    throw std::overflow_error("deduplicated path element count does not fit uint32 offsets");
+  }
   size_t num_bins = 0;
   for (const auto& [p, b] : bin_map) {
     (void)p;
     num_bins = std::max(num_bins, b + 1);
   }
-  std::vector<uint32_t> counts(num_bins + 1, 0);
-  for (const auto& e : sorted_paths) counts[bin_map.at(e.path_idx) + 1]++;
-  for (size_t i = 1; i < counts.size(); i++) counts[i] += counts[i - 1];  // exclusive scan
-  return counts;
+  std::vector<size_t> counts(num_bins, 0);
+  for (const auto& e : sorted_paths) counts[bin_map.at(e.path_idx)]++;
+  return CheckedBinSegmentsFromCounts(counts);
 }
 
 // Expected value per group in fp64, from RAW (pre-dedup) paths:

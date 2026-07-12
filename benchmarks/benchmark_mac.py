@@ -1,8 +1,10 @@
 """Benchmark runner for MetalTreeShap (proposal §7).
 
 Mirrors upstream gputreeshap/benchmark/benchmark.py: same datasets (adult, covtype,
-cal_housing, fashion_mnist), same model grid (10/100/1000 rounds x depth 3/8/16), same 10K
-explain rows, so results are directly comparable with the published V100 table.
+cal_housing, fashion_mnist), same model grid (10/100/1000 rounds x depth 3/8/16), and same 10K
+explain rows. This aligns the workload shape with the published V100 table, but categorical
+encoding and hardware/software differences mean those numbers are contextual, not universally
+direct comparisons.
 
 Differences from upstream, per review:
   * adult / fashion_mnist categoricals are ORDINAL-ENCODED to numeric (the extractor does
@@ -15,8 +17,9 @@ Differences from upstream, per review:
   * Timing is phase-separated: model extraction+preprocess (one-time, amortized) is
     reported apart from per-call explain time, and only explain time enters the speedup —
     a compiled-model API is pointless if benchmarks re-measure setup every call.
-  * No acceleration numbers are claimed until the Metal path runs: the metal device raises
-    until the Phase-1 bindings land.
+  * Phase 1 validates the checked-in Metal CLI for correctness, but this benchmark still raises
+    for ``--device metal`` until the Python compiled-model binding is wired in Phase 2/3. No
+    acceleration number is inferred from correctness-only fixture timings.
 
 Energy: run alongside `sudo powermetrics --samplers cpu_power,gpu_power -i 1000` and record
 package/GPU watts for the perf-per-watt comparison.
@@ -78,14 +81,16 @@ def bench(dataset: str, size: str, nrows: int, niter: int, device: str) -> dict:
         dtest = xgb.DMatrix(Xt)
         run = lambda: model.predict(dtest, pred_contribs=True)  # noqa: E731
     elif device == "metal":
-        # Phase 1-3: compiled-model API — extraction+preprocess+buffer upload once (setup),
+        # Phase 2-3: Python compiled-model API — extraction+preprocess+buffer upload once (setup),
         # then repeated explains. Wire the bindings here when they exist:
         #   import metaltreeshap
         #   t0 = time.perf_counter()
         #   compiled = metaltreeshap.compile(model)          # extract + preprocess + buffers
         #   result["setup_s"] = time.perf_counter() - t0
         #   run = lambda: compiled.shap_values(Xt)
-        raise NotImplementedError("metal backend lands in Phase 1-3 (see proposal §6)")
+        raise NotImplementedError(
+            "Metal correctness is validated by metal_cli; benchmark bindings land in Phase 2/3"
+        )
     else:
         raise ValueError(device)
 

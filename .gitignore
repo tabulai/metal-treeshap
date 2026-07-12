@@ -18,9 +18,6 @@ __pycache__/
 .vscode/
 .idea/
 
-# vendored dependencies (fetch per README; keep the tree lean)
-third_party/metal-cpp/
-
 # scratch
 _to_delete/
 *.tmp

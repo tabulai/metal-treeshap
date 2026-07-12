@@ -11,6 +11,7 @@
 // then checks sum(phis) == margin-by-traversal for both fp64 and fp32 accumulation.
 //
 // Build & run:  g++ -std=c++20 -O2 -o test_property tests/test_property_additivity.cpp
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -80,19 +81,35 @@ static Tree RandomTree(std::mt19937& rng, int max_depth, int feature_pool) {
     // The random leaf coin makes depth a branching process with substantial extinction
     // probability (~82% at p=0.45), so "does a deep path exist" would be RNG- and
     // stdlib-dependent. One SPINE (root -> rightmost chain) is therefore exempt from
-    // the coin and always reaches max_depth: deep trees are guaranteed deep, and with a
-    // wide feature pool the spine carries ~20+ distinct features. (The deterministic
-    // 32-element boundary is separately pinned by TestComb31.)
+    // the coin and always reaches max_depth. When the feature pool is at least the
+    // requested depth, the spine also requires a fresh feature at every level; this makes
+    // post-dedup cooperative length structural rather than a lucky RNG outcome. (The
+    // deterministic 32-element boundary is separately pinned by TestComb31.)
     const double leaf_p = max_depth > 12 ? 0.45 : 0.25;
     bool make_leaf =
         d >= max_depth || (d > 0 && !it.spine && unit(rng) < leaf_p);
     int f = -1;
     if (!make_leaf) {  // pick a feature whose feasible interval is still wide enough
+      const bool require_fresh = it.spine && feature_pool >= max_depth;
+      const auto usable = [&](int cand) {
+        const bool fresh = it.lo[cand] == -3.0f && it.hi[cand] == 3.0f;
+        return it.hi[cand] - it.lo[cand] > 0.05f && (!require_fresh || fresh);
+      };
       for (int tries = 0; tries < 4; tries++) {
         int cand = feat(rng);
-        if (it.hi[cand] - it.lo[cand] > 0.05f) {
+        if (usable(cand)) {
           f = cand;
           break;
+        }
+      }
+      // Four random probes are not evidence that no valid split remains. Scan the pool
+      // before terminating so a feasible forced spine cannot die by bad sampling.
+      if (f < 0) {
+        for (int cand = 0; cand < feature_pool; cand++) {
+          if (usable(cand)) {
+            f = cand;
+            break;
+          }
         }
       }
       if (f < 0) make_leaf = true;
@@ -204,59 +221,68 @@ static size_t MaxGroupLen(const Preprocessed& pp) {
   return best;
 }
 
-// Independent double-precision Lundberg extend/unwind oracle for the comb's deepest
-// (all-right) row, built directly from the comb's analytic structure — a second
-// implementation, not a call into the code under test. Returns the COMPLETE phi vector
-// (per-feature attributions + bias in the last slot), not just a sum, so attribution
-// redistribution that happens to preserve the sum cannot hide (validation_v3 point).
+// Independent exact-Shapley oracle for the comb's deepest (all-right) row, built directly
+// from path probabilities. It does NOT use TreeSHAP's extend/unwind recurrence. For each
+// target feature i it multiplies the polynomial
+//
+//     product_{j != i} (z_j + o_j t)
+//
+// with an ordinary subset-size coefficient DP. Coefficient k is the summed probability
+// of all size-k coalitions; multiplying it by k!(D-k-1)!/D! and by (o_i-z_i) is the exact
+// Shapley formula for that path. This is intentionally independent of the SIMD recurrence
+// under test. It returns the COMPLETE phi vector (per-feature attributions + bias), so
+// sum-preserving attribution redistribution cannot hide.
 //
 // What it establishes at depth 31 (32 distinct-feature elements):
-//   * double-oracle additivity residual ~e-13 -> the recurrence LOGIC is exact;
-//   * float recurrences vs this oracle: max ELEMENTWISE attribution deviation ~4e-6;
+//   * exact-oracle additivity residual ~e-16 -> the analytic SHAP vector is pinned;
+//   * float recurrences vs this oracle: max ELEMENTWISE attribution deviation ~9.4e-6;
 //   * float accumulated ROW-SUM residual ~1.3e-4 (many signed ~e-6 deviations adding up).
 // The e-4 figure is the accumulated additivity residual, not a per-attribution error or
 // a measured condition number. The CUDA kernel uses the same float recurrence, so
 // similar deep-path sensitivity is a reasonable inference — unmeasured on CUDA so far.
 // All of it sits far below the project's 1e-3 gate; typical models (depth <= 10) are ~e-6.
-static std::vector<double> Comb31DoubleOraclePhis(const std::vector<double>& frac,
+static std::vector<double> Comb31ExactShapleyPhis(const std::vector<double>& frac,
                                                   const std::vector<float>& leaf) {
   const int depth = 31;
   std::vector<double> phis(depth + 1, 0.0);  // features 0..30, bias at [depth]
   for (int p = 0; p <= depth; p++) {
-    const int L = (p < depth) ? p + 2 : depth + 1;  // elements incl. root
-    std::vector<double> z(L), o(L);
-    z[0] = 1.0;
-    o[0] = 1.0;
-    for (int d = 0; d < ((p < depth) ? p : depth); d++) {
-      z[d + 1] = 1.0 - frac[d];
-      o[d + 1] = 1.0;  // the all-right row satisfies every spine split
+    const int D = (p < depth) ? p + 1 : depth;  // split features on this path
+    std::vector<double> z(D), o(D);
+    for (int d = 0; d < std::min(p, depth); d++) {
+      z[d] = 1.0 - frac[d];
+      o[d] = 1.0;  // the all-right row satisfies every spine split
     }
     if (p < depth) {
-      z[L - 1] = frac[p];
-      o[L - 1] = 0.0;  // ...and fails every left exit
+      z[p] = frac[p];
+      o[p] = 0.0;  // ...and fails every left exit
     }
     double pz = 1.0;
-    for (int i = 1; i < L; i++) pz *= z[i];
+    for (double zi : z) pz *= zi;
     phis[depth] += pz * leaf[p];  // bias
-    std::vector<double> m(L, 0.0);
-    m[0] = 1.0;
-    for (int k = 1; k < L; k++) {
-      for (int r = k; r >= 0; r--) {
-        const double left = (r > 0) ? m[r - 1] : 0.0;
-        m[r] = m[r] * z[k] * double(k - r) / (k + 1) + o[k] * left * double(r) / (k + 1);
+
+    for (int i = 0; i < D; i++) {
+      // coeff[k] is the path-probability sum over size-k coalitions that omit i.
+      std::vector<double> coeff(D, 0.0);
+      coeff[0] = 1.0;
+      int seen = 0;
+      for (int j = 0; j < D; j++) {
+        if (j == i) continue;
+        for (int k = seen + 1; k >= 0; k--) {
+          const double excluded = coeff[k] * z[j];
+          const double included = (k > 0) ? coeff[k - 1] * o[j] : 0.0;
+          coeff[k] = excluded + included;
+        }
+        seen++;
       }
-    }
-    const int D = L - 1;
-    for (int i = 1; i < L; i++) {  // element i splits on feature i-1 in the comb
-      double next_one = m[D], tot = 0.0;
-      for (int j = D - 1; j >= 0; j--) {
-        const double pre = double(D - j) * z[i] / (D + 1);
-        const double tmp = next_one * (D + 1) / (j + 1);
-        tot += tmp * o[i];
-        next_one = m[j] - tmp * pre;
-        if (pre > 0) tot += (1.0 - o[i]) * m[j] / pre;
+
+      double weighted = 0.0;
+      double choose = 1.0;  // C(D-1, 0)
+      for (int k = 0; k < D; k++) {
+        // k!(D-k-1)!/D! = 1 / (D * C(D-1,k)).
+        weighted += coeff[k] / (double(D) * choose);
+        if (k + 1 < D) choose *= double(D - 1 - k) / double(k + 1);
       }
-      phis[i - 1] += tot * (o[i] - z[i]) * leaf[p];
+      phis[i] += weighted * (o[i] - z[i]) * leaf[p];
     }
   }
   return phis;
@@ -274,7 +300,7 @@ static int TestComb31() {
   int node = 0;
   std::mt19937 rng(7);
   std::uniform_real_distribution<float> leaf(-1.0f, 1.0f);
-  std::vector<double> fracs;               // for the double oracle
+  std::vector<double> fracs;               // for the exact-Shapley oracle
   std::vector<float> leaf_vals(depth + 1);  // leaf_vals[p] = leaf of the path exiting at depth p
   for (int d = 0; d < depth; d++) {
     Node& n = t.nodes[node];
@@ -298,14 +324,14 @@ static int TestComb31() {
   t.nodes[node].leaf = leaf(rng);
   leaf_vals[depth] = t.nodes[node].leaf;
 
-  // Logic exactness at the 32-element boundary: the independent double-precision oracle
-  // must satisfy additivity to ~1e-13 (any recurrence logic error would be ~1e-1).
-  const std::vector<double> oracle = Comb31DoubleOraclePhis(fracs, leaf_vals);
+  // Exactness at the 32-element boundary: the independent double-precision oracle must
+  // satisfy additivity near machine precision.
+  const std::vector<double> oracle = Comb31ExactShapleyPhis(fracs, leaf_vals);
   double oracle_sum = 0.0;
   for (double v : oracle) oracle_sum += v;
   const double oracle_resid = std::abs(oracle_sum - double(leaf_vals[depth]));
   if (oracle_resid > 1e-9) {
-    std::fprintf(stderr, "comb31 double-oracle residual %.3e (logic error!)\n", oracle_resid);
+    std::fprintf(stderr, "comb31 exact-Shapley residual %.3e (oracle error!)\n", oracle_resid);
     return 1;
   }
 
@@ -353,8 +379,8 @@ static int TestComb31() {
     resid32 = std::max(resid32, std::abs(s32 - margin));
   }
   // ELEMENTWISE attribution comparison for the all-right row (row 0) against the full
-  // double oracle: catches sum-preserving redistribution the residual can't see.
-  // Measured ~4e-6; gate 2e-5.
+  // exact-Shapley oracle: catches sum-preserving redistribution the residual can't see.
+  // Measured 9.41e-6 on this fixture; gate 2e-5.
   double elem_dev = 0.0;
   for (int c = 0; c <= num_features; c++) {
     elem_dev = std::max(elem_dev,
@@ -364,10 +390,10 @@ static int TestComb31() {
   // Sum tolerance 5e-4: at 32 distinct-feature elements the fp32 recurrences carry ~e-6
   // elementwise deviations whose signed sum accumulates to ~1.3e-4 across the row
   // (identical in fp64-accumulation mode: the deviation lives in the per-path float
-  // arithmetic, which the CUDA kernel shares). The double oracle pins the logic to
-  // ~1e-13. See the Comb31DoubleOraclePhis comment and proposal §9.
+  // arithmetic, which the CUDA kernel shares). The exact-Shapley oracle pins the target
+  // vector independently near machine precision. See Comb31ExactShapleyPhis and proposal §9.
   const bool ok = resid64 < 5e-4 && resid32 < 5e-4 && elem_dev < 2e-5;
-  std::printf("comb31: group_len=32 double_oracle_sum=%.1e elementwise_vs_oracle=%.2e "
+  std::printf("comb31: group_len=32 exact_shapley_resid=%.1e elementwise_vs_oracle=%.2e "
               "additivity fp64=%.2e fp32=%.2e %s\n",
               oracle_resid, elem_dev, resid64, resid32, ok ? "ok" : "FAIL");
   return ok ? 0 : 1;
@@ -437,11 +463,11 @@ int main() {
     if (!ok) failures++;
   }
   // The deep trials must genuinely produce long cooperative groups post-dedup (the
-  // review found the old generator capped them at 5). The spine guarantees depth 31;
-  // distinct-feature count on it is random (~22 expected from a 40-feature pool), so
-  // gate conservatively at 12 — the exact 32-element boundary is TestComb31's job.
-  if (deep_trial_max_group < 12) {
-    std::fprintf(stderr, "deep trials only reached group length %zu (< 12): generator "
+  // review found the old generator capped them at 5). With a feature pool wider than
+  // the requested depth, the forced spine makes 31 structurally distinct splits, so
+  // root + features must survive dedup as an exact 32-element group.
+  if (deep_trial_max_group != 32) {
+    std::fprintf(stderr, "deep trials reached group length %zu (expected 32): generator "
                  "regression\n", deep_trial_max_group);
     failures++;
   }

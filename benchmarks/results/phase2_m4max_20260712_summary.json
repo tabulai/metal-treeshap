@@ -1,0 +1,154 @@
+{
+  "schema": "metal_treeshap.phase2.summary.v1",
+  "material_passport": {
+    "origin_skill": "academic-research-suite/experiment-agent",
+    "mode": "run+validate",
+    "date": "2026-07-12",
+    "verification_status": "VERIFIED",
+    "version": "phase2_m4max_v1"
+  },
+  "environment": {
+    "host": "Apple M4 Max",
+    "gpu_cores": 40,
+    "cpu_cores": 16,
+    "cpu_topology": "12 performance + 4 efficiency",
+    "memory_gib": 128,
+    "os": "macOS 26.2 (25C56)",
+    "metal": "Metal 4; shaders compiled at runtime as Metal 3",
+    "tested_shader_sha256": "73fffeca914ee8e3a8cf7f7d94d4a6e49c6449e393621ec591c6385971628a51",
+    "tested_shader_snapshot": "phase2_m4max_20260712_raw/treeshap_tested.metal",
+    "delivered_shader_sha256": "0c75d6491cbe570180ea4fa269054f5e4f550a2a3f61646ad843b6745239106e",
+    "shader_difference_note": "The preserved tested snapshot and delivered shader differ only in comments describing the subsequently selected host default.",
+    "xgboost": "3.1.2, CPU wheel with OpenMP, nthread=16",
+    "thermal_telemetry": "not collected; privileged powermetrics unavailable"
+  },
+  "stress_workload": {
+    "trees": 500,
+    "max_depth": 8,
+    "rows": 8192,
+    "features": 12,
+    "raw_path_elements": 521503,
+    "packed_bins": 11618,
+    "nonroot_contributions_per_row": 296034,
+    "active_output_cells": 12,
+    "sha256": {
+      "model.json": "7373d237cf01cf32e1ceec1f308c284ba3822e843052636cf95c1a20dcc33bc3",
+      "paths.csv": "682bef155e54e809000152b45068249286cfd924ec0ae21d231bb50832b5dce1",
+      "X.csv": "5cbcd8769d4500ac59c3499fe2b3356c1e9fdc4325e16948ddc50d06711085f3",
+      "expected.csv": "abd3c5bf90493c9252c1e329856c2b2ea16a7b6536409c1b0dfdb84273bb507b"
+    }
+  },
+  "selected_default": {
+    "accumulation": "atomic",
+    "model_storage": "shared",
+    "rows_per_simdgroup": 256,
+    "threads_per_threadgroup": 256,
+    "selection_basis": "full-scale shuffled tuning followed by a 5-round, 50-call focused comparison"
+  },
+  "primary_result": {
+    "comparison_scope": "steady-state API call; compiled Booster/DMatrix and compiled Metal model retained",
+    "metal_wall_s": {
+      "median": 0.6206339585,
+      "p10": 0.5975109298,
+      "p90": 0.6427152753,
+      "samples": 50,
+      "outer_rounds": 5
+    },
+    "metal_gpu_median_s": 0.6197311457945034,
+    "metal_rows_per_s": 13199.406651545638,
+    "xgboost_cpu_wall_s": {
+      "median": 12.034499833825976,
+      "p10": 11.545301408460364,
+      "p90": 12.48431706703268,
+      "samples": 7
+    },
+    "xgboost_cpu_rows_per_s": 680.7096358898383,
+    "steady_state_api_speedup": 19.390656390945736,
+    "cpu_over_metal_gpu_speedup": 19.41890433535915,
+    "derived_setup_plus_call_estimate": {
+      "metal_s": 1.8167267505,
+      "xgboost_cpu_s": 12.20415670867078,
+      "speedup": 6.717662249048708,
+      "caveat": "Not a direct model-to-first-answer measurement: separately measured setup components are added to warmed steady-state calls; Metal path extraction is excluded, while CPU load includes the expected file."
+    },
+    "metal_accuracy_worst_over_focused_runs": {
+      "max_abs": 0.00007486343383789062,
+      "max_row_group_sum_abs": 0.00008246686775237322,
+      "max_pairwise_repeat_spread": 0.00006151199340820312,
+      "gate": 0.001
+    }
+  },
+  "accumulation_comparison_same_shuffled_suite": {
+    "atomic": {
+      "wall_median_s": 0.546268208,
+      "accuracy_max_abs": 0.00007200241088867188,
+      "max_pairwise_repeat_spread": 0.000052928924560546875
+    },
+    "simdgroup": {
+      "wall_median_s": 1.037783834,
+      "accuracy_max_abs": 0.00003147125244140625,
+      "max_pairwise_repeat_spread": 0.0000286102294921875,
+      "theoretical_atomic_write_reduction": 3.42699,
+      "slowdown_vs_atomic": 1.8997697812207297
+    },
+    "interpretation": "SIMD pre-aggregation improved accuracy and reduced atomic traffic, but its key-matching and shuffle reductions cost more than the saved Apple-GPU atomics."
+  },
+  "deterministic_mode": {
+    "scratch_budget_mib": 256,
+    "active_scratch_mib": 255.21730041503906,
+    "tile_rows": 226,
+    "tile_count": 37,
+    "wall_median_s": 1.290503125,
+    "slowdown_vs_selected_atomic": 2.0793305092731242,
+    "accuracy_max_abs": 0.00010776519775390625,
+    "max_row_group_sum_abs": 0.00010723993182182312,
+    "unique_hashes": 1,
+    "max_pairwise_repeat_spread": 0.0,
+    "repeatability_runs_on_hot_workload": 100,
+    "small_budget_ablation": {
+      "scratch_budget_mib": 64,
+      "tile_count": 147,
+      "wall_median_s": 2.2472020415
+    }
+  },
+  "batch_crossover": [
+    {"rows": 1, "cpu_s": 0.006891875062137842, "metal_s": 0.000502, "speedup": 13.728834785135142},
+    {"rows": 8, "cpu_s": 0.00923204212449491, "metal_s": 0.0005121875, "speedup": 18.02473142061239},
+    {"rows": 32, "cpu_s": 0.036591249983757734, "metal_s": 0.0008776245, "speedup": 41.69351469080197},
+    {"rows": 128, "cpu_s": 0.2678281660191715, "metal_s": 0.0031485835, "speedup": 85.06306598480603},
+    {"rows": 512, "cpu_s": 0.7803009159397334, "metal_s": 0.014792042, "speedup": 52.751399430838106},
+    {"rows": 2048, "cpu_s": 3.03310308419168, "metal_s": 0.1605340835, "speedup": 18.89382627080361},
+    {"rows": 8192, "cpu_s": 12.034499833825976, "metal_s": 0.615455958, "speedup": 19.55379532425613}
+  ],
+  "raw_artifact_sha256": {
+    "stress_tuning.json": "7491a66570b98ba601ac1c4ca1e2beeb3e020f5ce3cc7923524d30b854941f41",
+    "hot_tuning.json": "e04a89414e174ebecd36e77538b021e88fe9c569ae02e2f5f538a91edf44fbb2",
+    "stress_atomic_full.json": "b7e7a64d45091115548e3a089921b95acb14fa8c67f2c7b84c17391295377842",
+    "stress_fast_modes_final.json": "d14137af20feb4c7c5132c6b62eb53c8c1757040612ceb41d0043bd320d70952",
+    "stress_atomic_ab_final.json": "5c7eb7e442ce87a898ec56c55c8e2ea3b66a24f95f95e8f54dd65ddeebef93d9",
+    "stress_deterministic_final.json": "e6c7a1825f55986c340c233210f89648eea6349a49682746783bfd47768b49b7",
+    "hot_repeatability.json": "b68a6af02dd35bd03a90869db4fee1eaea6b3f9dc31909b80d3f704017559eb0",
+    "cpu_xgboost_final.json": "c426ef2efedd822dd2c3ed86b967489209b0fa0adcb6a24e9b8b87e7de1d4f18",
+    "row_sweep/metal_1.json": "cef0722a42ea6984b4f297f8d9dbec954ac3689d3f8ee5ac36217bf82c6d924a",
+    "row_sweep/metal_8.json": "b59b1d47cb9a8ee8de8c8e5f5725623eb77b24afb8d5811d4f1ea36931c5ded8",
+    "row_sweep/metal_32.json": "d80d057cb067bebd93efc1a1af8fcf171f8d1fc273ae9ecf96b41d580588d13a",
+    "row_sweep/metal_128.json": "9558dc386421435bae307e1198a272528d9e874bb3c9fbdd4dfdb2e224b8e663",
+    "row_sweep/metal_512.json": "bf18b31ddf9951de2ce85969aa37b6ecb05087fb28ab24848c6adb8d9c19a49a",
+    "row_sweep/metal_2048.json": "c6dbdcce21d5c6e7e0cc37891e81e1aa20189671ea45ae886c566352097db2c3",
+    "row_sweep/metal_8192.json": "eb4c3145a3ab3bde841591db2f34ffa1e082b2ef47116be9ffb84c4fc7d4c41f",
+    "treeshap_tested.metal": "73fffeca914ee8e3a8cf7f7d94d4a6e49c6449e393621ec591c6385971628a51"
+  },
+  "limitations": [
+    "Results are from one M4 Max and synthetic stress/hot workloads, not the full upstream dataset matrix.",
+    "p10/p90 are observed sample dispersion, not confidence intervals.",
+    "No privileged energy or temperature telemetry was collected.",
+    "XGBoost allocates its returned output inside the timed call; Metal reuses caller output storage. XGBoost retains its DMatrix; Metal wraps or copies X each call.",
+    "Small-batch rows compare Python Booster.predict against the native C++ Metal harness, so wrapper overhead can materially affect the 1-32-row ratios.",
+    "The 6.72x setup-plus-call figure is a derived, non-symmetric estimate rather than direct model-to-first-answer latency.",
+    "The shap Python package baseline and cross-device M-series measurements remain future work."
+  ],
+  "fallacy_scan": {
+    "coverage": "11/11 checked",
+    "result": "No causal or population inference is made. Tuning/look-elsewhere and order/thermal risks are disclosed and mitigated with full configuration reporting, deterministic shuffling, outer rounds, and a focused confirmation run."
+  }
+}

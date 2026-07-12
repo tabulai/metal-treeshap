@@ -1,0 +1,306 @@
+{
+  "created_utc": "2026-07-12T22:18:12Z",
+  "design": {
+    "iterations": 7,
+    "setup_excluded": [
+      "model_load",
+      "DMatrix construction"
+    ],
+    "timed_call": "Booster.predict(DMatrix, pred_contribs=True)",
+    "warmups": 2
+  },
+  "environment": {
+    "machine": "arm64",
+    "nthread": 16,
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "xgboost": "3.1.2",
+    "xgboost_build_info": {
+      "BUILTIN_PREFETCH_PRESENT": true,
+      "CLANG_VERSION": [
+        15,
+        0,
+        0
+      ],
+      "DEBUG": false,
+      "MM_PREFETCH_PRESENT": false,
+      "USE_CUDA": false,
+      "USE_DLOPEN_NCCL": false,
+      "USE_FEDERATED": false,
+      "USE_NCCL": false,
+      "USE_OPENMP": true,
+      "USE_RMM": false,
+      "libxgboost": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/xgboost/lib/libxgboost.dylib"
+    }
+  },
+  "inputs": {
+    "available_rows": 8192,
+    "cols": 12,
+    "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+    "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+    "model": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/model.json",
+    "sha256": {
+      "expected": "abd3c5bf90493c9252c1e329856c2b2ea16a7b6536409c1b0dfdb84273bb507b",
+      "matrix": "5cbcd8769d4500ac59c3499fe2b3356c1e9fdc4325e16948ddc50d06711085f3",
+      "model": "7373d237cf01cf32e1ceec1f308c284ba3822e843052636cf95c1a20dcc33bc3"
+    }
+  },
+  "results": [
+    {
+      "accuracy": {
+        "max_abs": 0.0,
+        "mean_abs": 0.0
+      },
+      "dmatrix_setup_s": 0.0011462080292403698,
+      "repeatability": {
+        "hash_algorithm": "sha256-array-bytes",
+        "hashes": [
+          "ee30c805a56e6344a4fd46c22d584352d34785d30b9e42b9a6901ad576bf5e69",
+          "ee30c805a56e6344a4fd46c22d584352d34785d30b9e42b9a6901ad576bf5e69",
+          "ee30c805a56e6344a4fd46c22d584352d34785d30b9e42b9a6901ad576bf5e69",
+          "ee30c805a56e6344a4fd46c22d584352d34785d30b9e42b9a6901ad576bf5e69",
+          "ee30c805a56e6344a4fd46c22d584352d34785d30b9e42b9a6901ad576bf5e69",
+          "ee30c805a56e6344a4fd46c22d584352d34785d30b9e42b9a6901ad576bf5e69",
+          "ee30c805a56e6344a4fd46c22d584352d34785d30b9e42b9a6901ad576bf5e69"
+        ],
+        "unique_hashes": 1
+      },
+      "rows": 1,
+      "throughput_rows_per_s": 145.0983935407852,
+      "timing_s": {
+        "median": 0.006891875062137842,
+        "p10": 0.006576066417619586,
+        "p90": 0.007083983300253749,
+        "samples": [
+          0.007131458958610892,
+          0.006932083982974291,
+          0.006822625175118446,
+          0.006369916023686528,
+          0.006891875062137842,
+          0.006713500013574958,
+          0.007052332861348987
+        ]
+      }
+    },
+    {
+      "accuracy": {
+        "max_abs": 0.0,
+        "mean_abs": 0.0
+      },
+      "dmatrix_setup_s": 0.0003922909963876009,
+      "repeatability": {
+        "hash_algorithm": "sha256-array-bytes",
+        "hashes": [
+          "52bdf716c9fb6a4c2f1b751e0042c34e1820e8689764e60cfd787c6b56857f14",
+          "52bdf716c9fb6a4c2f1b751e0042c34e1820e8689764e60cfd787c6b56857f14",
+          "52bdf716c9fb6a4c2f1b751e0042c34e1820e8689764e60cfd787c6b56857f14",
+          "52bdf716c9fb6a4c2f1b751e0042c34e1820e8689764e60cfd787c6b56857f14",
+          "52bdf716c9fb6a4c2f1b751e0042c34e1820e8689764e60cfd787c6b56857f14",
+          "52bdf716c9fb6a4c2f1b751e0042c34e1820e8689764e60cfd787c6b56857f14",
+          "52bdf716c9fb6a4c2f1b751e0042c34e1820e8689764e60cfd787c6b56857f14"
+        ],
+        "unique_hashes": 1
+      },
+      "rows": 8,
+      "throughput_rows_per_s": 866.5471725669454,
+      "timing_s": {
+        "median": 0.00923204212449491,
+        "p10": 0.008859832724556326,
+        "p90": 0.009707116615027189,
+        "samples": [
+          0.009295416995882988,
+          0.00917716696858406,
+          0.008877165848389268,
+          0.00923204212449491,
+          0.008833833038806915,
+          0.00970358308404684,
+          0.009712416911497712
+        ]
+      }
+    },
+    {
+      "accuracy": {
+        "max_abs": 0.0,
+        "mean_abs": 0.0
+      },
+      "dmatrix_setup_s": 0.00036075012758374214,
+      "repeatability": {
+        "hash_algorithm": "sha256-array-bytes",
+        "hashes": [
+          "39a6f321bfafc738adb2f9ad86aa2c63d79cf4797b66af55761ffa03e060cad5",
+          "39a6f321bfafc738adb2f9ad86aa2c63d79cf4797b66af55761ffa03e060cad5",
+          "39a6f321bfafc738adb2f9ad86aa2c63d79cf4797b66af55761ffa03e060cad5",
+          "39a6f321bfafc738adb2f9ad86aa2c63d79cf4797b66af55761ffa03e060cad5",
+          "39a6f321bfafc738adb2f9ad86aa2c63d79cf4797b66af55761ffa03e060cad5",
+          "39a6f321bfafc738adb2f9ad86aa2c63d79cf4797b66af55761ffa03e060cad5",
+          "39a6f321bfafc738adb2f9ad86aa2c63d79cf4797b66af55761ffa03e060cad5"
+        ],
+        "unique_hashes": 1
+      },
+      "rows": 32,
+      "throughput_rows_per_s": 874.5260141209793,
+      "timing_s": {
+        "median": 0.036591249983757734,
+        "p10": 0.03440539166331291,
+        "p90": 0.057514699967578055,
+        "samples": [
+          0.03416141611523926,
+          0.034568042028695345,
+          0.035019209142774343,
+          0.04669254110194743,
+          0.036591249983757734,
+          0.059554999927058816,
+          0.05615449999459088
+        ]
+      }
+    },
+    {
+      "accuracy": {
+        "max_abs": 0.0,
+        "mean_abs": 0.0
+      },
+      "dmatrix_setup_s": 0.0004164171405136585,
+      "repeatability": {
+        "hash_algorithm": "sha256-array-bytes",
+        "hashes": [
+          "4230fb86f1a4df85d38dfd520ecfce189de24fb5c290bfc4268b8bc880b05e5b",
+          "4230fb86f1a4df85d38dfd520ecfce189de24fb5c290bfc4268b8bc880b05e5b",
+          "4230fb86f1a4df85d38dfd520ecfce189de24fb5c290bfc4268b8bc880b05e5b",
+          "4230fb86f1a4df85d38dfd520ecfce189de24fb5c290bfc4268b8bc880b05e5b",
+          "4230fb86f1a4df85d38dfd520ecfce189de24fb5c290bfc4268b8bc880b05e5b",
+          "4230fb86f1a4df85d38dfd520ecfce189de24fb5c290bfc4268b8bc880b05e5b",
+          "4230fb86f1a4df85d38dfd520ecfce189de24fb5c290bfc4268b8bc880b05e5b"
+        ],
+        "unique_hashes": 1
+      },
+      "rows": 128,
+      "throughput_rows_per_s": 477.91836796895217,
+      "timing_s": {
+        "median": 0.2678281660191715,
+        "p10": 0.2485880414955318,
+        "p90": 0.3193214583676309,
+        "samples": [
+          0.27337970794178545,
+          0.37772833299823105,
+          0.24678116594441235,
+          0.2803835419472307,
+          0.2497926251962781,
+          0.2514976670499891,
+          0.2678281660191715
+        ]
+      }
+    },
+    {
+      "accuracy": {
+        "max_abs": 0.0,
+        "mean_abs": 0.0
+      },
+      "dmatrix_setup_s": 0.0005097920075058937,
+      "repeatability": {
+        "hash_algorithm": "sha256-array-bytes",
+        "hashes": [
+          "7647827f040c617b36c503e8abc206706f4937b0690e41b65c47a8684f340be0",
+          "7647827f040c617b36c503e8abc206706f4937b0690e41b65c47a8684f340be0",
+          "7647827f040c617b36c503e8abc206706f4937b0690e41b65c47a8684f340be0",
+          "7647827f040c617b36c503e8abc206706f4937b0690e41b65c47a8684f340be0",
+          "7647827f040c617b36c503e8abc206706f4937b0690e41b65c47a8684f340be0",
+          "7647827f040c617b36c503e8abc206706f4937b0690e41b65c47a8684f340be0",
+          "7647827f040c617b36c503e8abc206706f4937b0690e41b65c47a8684f340be0"
+        ],
+        "unique_hashes": 1
+      },
+      "rows": 512,
+      "throughput_rows_per_s": 656.1571177747334,
+      "timing_s": {
+        "median": 0.7803009159397334,
+        "p10": 0.7618472834117711,
+        "p90": 0.7998899333178997,
+        "samples": [
+          0.7867647081147879,
+          0.7593443328514695,
+          0.7968756668269634,
+          0.7714081672020257,
+          0.8044113330543041,
+          0.7635159171186388,
+          0.7803009159397334
+        ]
+      }
+    },
+    {
+      "accuracy": {
+        "max_abs": 0.0,
+        "mean_abs": 0.0
+      },
+      "dmatrix_setup_s": 0.0011980419512838125,
+      "repeatability": {
+        "hash_algorithm": "sha256-array-bytes",
+        "hashes": [
+          "3abfb42a783215c0b607d5ff4eba2c289a5c66b47813da346dcf2cb13b65a81a",
+          "3abfb42a783215c0b607d5ff4eba2c289a5c66b47813da346dcf2cb13b65a81a",
+          "3abfb42a783215c0b607d5ff4eba2c289a5c66b47813da346dcf2cb13b65a81a",
+          "3abfb42a783215c0b607d5ff4eba2c289a5c66b47813da346dcf2cb13b65a81a",
+          "3abfb42a783215c0b607d5ff4eba2c289a5c66b47813da346dcf2cb13b65a81a",
+          "3abfb42a783215c0b607d5ff4eba2c289a5c66b47813da346dcf2cb13b65a81a",
+          "3abfb42a783215c0b607d5ff4eba2c289a5c66b47813da346dcf2cb13b65a81a"
+        ],
+        "unique_hashes": 1
+      },
+      "rows": 2048,
+      "throughput_rows_per_s": 675.2160883268465,
+      "timing_s": {
+        "median": 3.03310308419168,
+        "p10": 2.9289790248963983,
+        "p90": 3.1318397745955737,
+        "samples": [
+          3.25132824992761,
+          3.0423797499388456,
+          3.03310308419168,
+          2.9601793331094086,
+          2.8989575000014156,
+          2.9489933748263866,
+          3.0521807910408825
+        ]
+      }
+    },
+    {
+      "accuracy": {
+        "max_abs": 0.0,
+        "mean_abs": 0.0
+      },
+      "dmatrix_setup_s": 0.002140665892511606,
+      "repeatability": {
+        "hash_algorithm": "sha256-array-bytes",
+        "hashes": [
+          "5ad0f292a0c9f8004f00025a0241c688614344fbe528567fda297fc55d9f27c8",
+          "5ad0f292a0c9f8004f00025a0241c688614344fbe528567fda297fc55d9f27c8",
+          "5ad0f292a0c9f8004f00025a0241c688614344fbe528567fda297fc55d9f27c8",
+          "5ad0f292a0c9f8004f00025a0241c688614344fbe528567fda297fc55d9f27c8",
+          "5ad0f292a0c9f8004f00025a0241c688614344fbe528567fda297fc55d9f27c8",
+          "5ad0f292a0c9f8004f00025a0241c688614344fbe528567fda297fc55d9f27c8",
+          "5ad0f292a0c9f8004f00025a0241c688614344fbe528567fda297fc55d9f27c8"
+        ],
+        "unique_hashes": 1
+      },
+      "rows": 8192,
+      "throughput_rows_per_s": 680.7096358898383,
+      "timing_s": {
+        "median": 12.034499833825976,
+        "p10": 11.545301408460364,
+        "p90": 12.48431706703268,
+        "samples": [
+          12.034499833825976,
+          12.240670957835391,
+          12.689098041970283,
+          11.660427292110398,
+          12.347796417074278,
+          11.372612582985312,
+          11.85885366704315
+        ]
+      }
+    }
+  ],
+  "schema": "metal_treeshap.phase2.cpu_xgboost.v1",
+  "setup_s": {
+    "load_model_matrix_expected": 0.1675162089522928
+  }
+}

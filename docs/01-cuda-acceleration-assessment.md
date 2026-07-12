@@ -163,13 +163,15 @@ Results land in a global `phis[row, group, feature]` array via **atomic adds in 
 (`atomicAddDouble`, native `atomicAdd(double*)` on CC ≥ 6.0, CAS loop otherwise;
 gpu_treeshap.h:190-212). The policy is deliberately mixed-precision:
 
-- Per-path arithmetic (extend/unwind) runs in **float32 registers** — short dependency chains, and
-  each path's contribution is small and well-conditioned.
-- Cross-path **accumulation runs in float64**, because a SHAP value is a sum of thousands-to-
-  millions of signed path contributions that cancel heavily; float32 accumulation would visibly
-  drift. (An earlier version of the library accumulated in fp32 and the paper discusses the
-  observed error; the code today uses `double* phis` throughout the kernels and only converts at
-  the output copy.)
+- Per-path arithmetic (extend/unwind) runs in **float32 registers**. That is fast and normally
+  accurate for typical shallow trees, but it is not universally well-conditioned: the port's
+  depth-31 comb test measures a ~1.1e-4 row residual originating in these float recurrences.
+- Cross-path **accumulation runs in float64**. A SHAP value can sum many signed path
+  contributions, so wider accumulation reduces rounding and order sensitivity. Historically,
+  commit `2b0ba96` ("Determinism") changed the temporary/output array and atomics from float to
+  double while adding a determinism test. The source does not quantify the preceding fp32 error or
+  say that double atomics were free, so stronger causal claims would be speculation. The code
+  today uses `double* phis` throughout the kernels and converts when copying to the caller's type.
 - The **bias term** (expected value; column F+1 of the output) is computed separately on the
   device in full double precision by two `reduce_by_key` passes over the *raw* paths — product of
   `zero_fraction` per path, then Σ (leaf-probability · v) per class — explicitly "to avoid
@@ -243,8 +245,8 @@ elegant, hardware-native reformulation. Cost scales with background size (O(|X|�
 4. **Warp-primitive engineering.** match_any/ballot partitions, rank-rebased shuffles, packed
    64-bit broadcasts, popc/ffs bit math, branch-free FMA-intrinsic arithmetic, `__launch_bounds__`
    pinning, shared-memory struct staging to defeat local-memory spills.
-5. **Mixed precision with intent.** fp32 where error can't accumulate, fp64 atomics + separate
-   double bias reduction where it can.
+5. **Mixed precision.** fp32 cooperative recurrences for throughput, fp64 cross-path atomics and
+   a separate double bias reduction to reduce accumulation and expected-value error.
 6. **Device-side preprocessing** with thrust/cub so the whole explain call (minus BFD packing)
    stays on-GPU, launched once per model.
 

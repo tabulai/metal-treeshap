@@ -1,11 +1,11 @@
 # metal-treeshap
 
-GPU-accelerated exact TreeSHAP for Apple Silicon — a port of NVIDIA's
+An exact TreeSHAP implementation for Apple GPUs — a Metal port of NVIDIA's
 [GPUTreeShap](https://github.com/rapidsai/gputreeshap) (Mitchell, Frank & Holmes,
 [arXiv:2010.13972](https://arxiv.org/abs/2010.13972)) from CUDA to Metal.
 Apache-2.0, with attribution to upstream (see LICENSE, NOTICE).
 
-Start with the two documents in `docs/`:
+Start with these documents in `docs/`:
 
 1. **[docs/01-cuda-acceleration-assessment.md](docs/01-cuda-acceleration-assessment.md)** — how
    the CUDA implementation actually accelerates TreeSHAP (path decomposition, SIMD-cooperative
@@ -14,22 +14,34 @@ Start with the two documents in `docs/`:
 2. **[docs/02-apple-gpu-project-proposal.md](docs/02-apple-gpu-project-proposal.md)** — the
    project plan for the Apple GPU port: CUDA→Metal mapping, the fp64 problem and accumulation
    strategies, compiled-model architecture, phased milestones, benchmark plan, risks.
+3. **[docs/03-phase2-deterministic-design.md](docs/03-phase2-deterministic-design.md)** — the
+   bounded-memory, fixed-order two-stage accumulation path.
+4. **[docs/04-phase2-performance-results.md](docs/04-phase2-performance-results.md)** — the
+   reproducible M4 Max tuning, accuracy, repeatability, CPU comparison, and limitations.
 
-## Status (post Phase 0.5)
+## Status (Phase 2 acceleration complete on M4 Max)
+
+The portable pipeline, checked-in metal-cpp runner, and Metal kernel pass the local M4 Max
+differential suite in all three accumulation modes. On the checked-in 500-tree/depth-8 stress
+generator, 8,192 rows take **0.6206 s** with the selected Metal configuration versus
+**12.0345 s** for 16-thread XGBoost CPU `pred_contribs`: **19.39× steady-state API speedup**.
+Adding separately measured setup components gives a **6.72× derived setup-plus-call estimate**,
+not direct model-to-first-answer latency. These figures apply to the documented M4 Max workload,
+not every model or Apple GPU; see the Phase 2 results for raw sample dispersion and limitations.
 
 | component | file(s) | state |
 |---|---|---|
 | Path representation + 32-B GPU layout | `include/metal_treeshap/paths.h` | **built & tested** (any platform) |
-| Host preprocessing + two-layer validation (raw checks BEFORE dedup so merging can't launder malformed input, structural checks after; BFD/FFD/NF packing, sort, segments, fp64 bias) | `include/metal_treeshap/preprocess.h` | **built & tested**, ASAN/UBSAN clean (external validation) |
+| Host preprocessing + two-layer validation (raw checks BEFORE dedup so merging can't launder malformed input, structural checks after; BFD/FFD/NF packing, sort, segments, fp64 bias) | `include/metal_treeshap/preprocess.h` | **built & tested**, ASAN/UBSAN clean locally |
 | Scalar reference oracle (lane-faithful float recurrences, fp64/fp32 accumulation, order-shuffle mode) | `reference/reference_shap.h` | **built & tested vs xgboost** |
 | XGBoost extractor: raw-JSON based — `tree_info` groups, vector base_score intercepts (3.1+), empirically-verified objective link table with explicit allowlist, DART `weight_drop`, categorical/multi-target rejection; works from a model file without xgboost | `tools/extract_paths.py` | **tested on xgboost 2.0.3 AND 3.1.2**, incl. `num_parallel_tree`, DART, and 9 objective-link cases |
-| Golden tests (15 cases + rejection check; **non-mutating** — fixtures/results only change under explicit flags) | `tests/test_vs_xgboost.py` → `tests/RESULTS.md` | **passing on 2.0.3 and 3.1.2** at the 1e-3 gate |
-| Property-based additivity tests (stumps, genuine long cooperative groups, deterministic 32-element comb path, repeated features, ~1e-4 covers, NaNs) | `tests/test_property_additivity.cpp` | **passing**, incl. asserted 32-lane group execution |
-| Frozen fixtures replayable without xgboost (5 model cases + synthetic `deep31` 32-lane comb — the Phase-1 Metal differential target) | `tests/fixtures/*/`, `tests/test_fixture.py` | **passing** |
-| Metal kernel (first-order, 64-bit work math) | `shaders/treeshap.metal` | **externally validated on M4 Max (3 rounds)**: Metal 3 compile, width 32, exact simple + multi-row-bank fixtures, and **all six frozen fixtures ≤ 6.5e-6 through the compiled-model host logic** |
-| metal-cpp host: compiled-model design, hardened (exception-safe RAII construction, non-copyable owners, autorelease pools, zero-work paths, checked narrowing/products + 32-bit-grid dispatch guard, finite required intercepts, mutex-serialized Explain/tuning, runtime-source compilation) | `src/metal_host.hpp` | **host logic exercised externally on all six fixtures (v3)**; checked-in runner pending one on-device confirmation |
-| Metal fixture runner (repository-reproducible validation; runtime-compiles the shader when the offline toolchain is absent) | `src/main_metal.cpp`, `fixture_metal` CTest | checked in; needs macOS + vendored metal-cpp to run |
-| Benchmarks (phase-separated timings; adult ordinal-encoded with comparability caveat) | `benchmarks/benchmark_mac.py` | CPU baselines runnable; Metal hook raises until Phase 2-3 — **no acceleration claims yet** |
+| Golden tests (16 cases + rejection check; **non-mutating** — fixtures/results only change under explicit flags) | `tests/test_vs_xgboost.py` → `tests/RESULTS.md` | **passing on XGBoost 2.0.3 and 3.1.2** at the 1e-3 gate |
+| Property-based additivity tests (stumps, structurally guaranteed depth-31/32-element groups, deterministic comb, repeated features, ~1e-4 covers, NaNs, independent exact-Shapley vector oracle) | `tests/test_property_additivity.cpp` | **passing**, incl. asserted 32-lane group execution |
+| Frozen fixtures replayable without xgboost (6 model cases, including a real missing-only path, plus synthetic `deep31` 32-lane comb) | `tests/fixtures/*/`, `tests/test_fixture.py` | **passing** |
+| Metal kernels: atomic, SIMD pre-aggregation, deterministic partials+reduction | `shaders/treeshap.metal` | **validated on M4 Max**: Metal 3 compile, width 32, lane-31, missing-only NaN routing, every frozen fixture ≤ 6.51e-6; separate fast-mode pipelines avoid runtime-branch register cost |
+| metal-cpp compiled-model host: persistent shared/private model buffers, three accumulation modes, bounded private deterministic scratch, row tiling/barriers, timing and tuning controls, hardened ownership/shape checks | `src/metal_host.hpp` | **locally built and exercised on M4 Max** across all fixtures and modes; deterministic output bit-stable across 100 repeats and tile sizes |
+| Metal fixture runner (repository-reproducible validation; runtime-compiles the shader when the offline toolchain is absent) | `src/main_metal.cpp`, Metal CTests | **passing locally on M4 Max**; pinned metal-cpp headers are included |
+| Persistent Phase 2 benchmark, hashed hot/stress generators, shuffled tuning runner, CPU baseline, JSON Schema and result summary | `src/main_benchmark.cpp`, `benchmarks/phase2_*`, `benchmarks/results/` | **verified**; 19.39× steady-state speedup on the documented M4 Max stress run; full upstream dataset matrix remains Phase 4 |
 
 ## Quickstart (any platform — the portable core)
 
@@ -58,14 +70,31 @@ clear error** rather than silently mis-linked. Verified against xgboost 2.0.3 an
 ## Quickstart (Apple Silicon — Metal differential run)
 
 ```bash
-# 1. Vendor metal-cpp: download https://developer.apple.com/metal/cpp/ and unpack so
-#    third_party/metal-cpp/Metal/Metal.hpp exists.
+# The pinned Apple metal-cpp headers are included in third_party/metal-cpp.
 cmake -B build && cmake --build build
 # CMake probe-compiles a tiny kernel to detect the OFFLINE Metal toolchain; without it
 # (Command Line Tools only), metal_cli runtime-compiles shaders/treeshap.metal instead —
-# the exact path used in the external M4 Max validation.
-python tests/test_fixture.py build/reference_cli --metal-cli build/metal_cli
-# or: ctest --test-dir build -R fixture
+# the path exercised by the local M4 Max validation.
+ctest --test-dir build -R 'metal|fixture' --output-on-failure
+# Direct equivalent for all fixtures at one row-bank setting:
+python tests/test_fixture.py build/reference_cli --metal-cli build/metal_cli \
+  --metal-rows-per-simdgroup 256
+```
+
+The production throughput default is plain float atomics, shared model storage, 256 rows per
+SIMD-group, and 256 threads per threadgroup. Use `--accumulation deterministic` for fixed-order,
+bit-repeatable output (256 MiB scratch budget by default), or `--accumulation simdgroup` to test
+explicit pre-aggregation on another GPU/model.
+
+## Reproduce the Phase 2 benchmark
+
+```bash
+python3 benchmarks/phase2_workloads.py stress /tmp/metal-treeshap-phase2/stress --force
+python3 benchmarks/phase2_run.py build/phase2_benchmark \
+  /tmp/metal-treeshap-phase2/stress --kernel shaders/treeshap.metal \
+  --output /tmp/metal-treeshap-phase2/results.json \
+  --rows-per-simdgroup 256,1024 --threads-per-threadgroup 64,256 \
+  --accumulations atomic,simdgroup,deterministic --rounds 3
 ```
 
 ## Repository hygiene
@@ -85,9 +114,9 @@ xgboost model (or saved .json) ──tools/extract_paths.py──► paths + per
                     ┌────────────────────────┴──────────────────────┐
                     ▼ (any platform)                                ▼ (Apple Silicon)
         reference/reference_shap.h                       shaders/treeshap.metal
-        scalar oracle, fp64/fp32 accum,                  SIMD-group kernel, atomic_float,
+        scalar oracle, fp64/fp32 accum,                  atomic/SIMD/deterministic kernels,
         shuffled-order mode                              compiled-model host (persistent buffers)
                     │                                                │
-                    └───────────── identical phis ───────────────────┘
-                          (golden + fixture + property suites, Phase 1 exit)
+                    └──────── numerically matched phis ─────────────┘
+                    (golden + fixture + property + performance suites; Phase 2 complete)
 ```

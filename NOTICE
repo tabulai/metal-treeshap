@@ -15,3 +15,10 @@ PeerJ Computer Science 8:e880 (2022). arXiv:2010.13972.
 
 TreeSHAP: Scott M. Lundberg, Gabriel G. Erion, Su-In Lee.
 "Consistent Individualized Feature Attribution for Tree Ensembles." arXiv:1802.03888.
+
+metal-cpp
+Copyright 2020-2026 Apple Inc.
+Vendored from https://github.com/apple/metal-cpp at commit
+27c4382b7151d55a51692cdcb27aaa98752240de (METALCPP_VERSION 381.0.0).
+Licensed under the Apache License, Version 2.0. See
+third_party/metal-cpp/LICENSE.txt and third_party/metal-cpp/PINNED_VERSION.md.

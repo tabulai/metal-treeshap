@@ -1,4 +1,4 @@
-# MetalTreeShap — GPU-Accelerated TreeSHAP on Apple Silicon
+# MetalTreeShap — Exact TreeSHAP on Apple GPUs
 
 *A project proposal for porting the GPUTreeShap algorithm (Mitchell, Frank & Holmes) from CUDA to
 Apple GPUs via Metal. Companion to `01-cuda-acceleration-assessment.md`, which analyzes the CUDA
@@ -8,7 +8,7 @@ implementation this project ports.*
 
 ## 1. Motivation
 
-There is currently **no GPU-accelerated SHAP implementation for Apple Silicon**. On a Mac,
+There has been no established, benchmarked TreeSHAP package for Apple GPUs. On a Mac,
 `xgboost.predict(pred_contribs=True)`, `shap.TreeExplainer`, and LightGBM's contribution mode all
 run on CPU; `shap.explainers.GPUTree` and XGBoost's `device="gpu"` path hard-require CUDA. XGBoost
 has explicitly declined Metal support (GitHub issue #2440), and a search for prior Metal/MLX
@@ -18,16 +18,19 @@ order of ~15-18 TFLOPS FP32 with 546 GB/s of unified-memory bandwidth — the sa
 the V100 on which GPUTreeShap published 13-19× speedups over 40 Xeon cores. (Unified memory
 removes the PCIe staging that discrete GPUs pay; it does not make buffer handling free — see §5.)
 
-The opportunity is attractive for three reasons. First, the algorithm is a *proven* GPU win — the
+The opportunity is attractive for three reasons. First, the algorithm is a *proven NVIDIA GPU
+win* — the
 hard science (path decomposition, warp-cooperative recurrences, bin packing) is done and
 published; this is a porting-and-engineering project, not a research gamble. Second, the port is
 unusually well-matched: Apple GPUs execute in **32-wide SIMD-groups — exactly CUDA's warp width**
 — and the algorithm's one hard constraint (path length ≤ 32) transfers unchanged. Third, Apple's
-unified memory removes GPUTreeShap's main real-world tax: there is no PCIe transfer of the dataset
-or the phis output at all.
+unified memory removes GPUTreeShap's discrete PCIe tax. The current API still stages unaligned
+input and copies the shared output into caller storage, but both operations stay in unified memory.
 
-The result would be a genuinely novel open-source contribution: `pip install metaltreeshap`, and
-every M-series Mac explains tree models several times faster, at a fraction of the energy.
+The intended result is a genuinely novel open-source contribution: `pip install metaltreeshap`
+with a measured speed and energy advantage on suitable M-series workloads. Phase 2 now establishes
+the speed advantage on one M4 Max stress workload; packaging, the full dataset/device matrix, and
+energy evidence remain open.
 
 ## 2. Goals, non-goals, success criteria
 
@@ -54,7 +57,7 @@ SIMD width economics; possible later since MSL code is family-gated, not impossi
 
 ## 3. Feasibility: mapping the CUDA machinery onto Metal
 
-The assessment doc identified six acceleration levers. Five carry over almost mechanically; one
+The assessment doc identified six acceleration levers. Five map directly; one
 (fp64 accumulation) needs real design work. The table below is the Rosetta stone for the port —
 "MSL" is the Metal Shading Language; all listed MSL features are supported on every Apple-Silicon
 Mac (Apple7 GPU family / M1 and newer, Metal 3, macOS 13+).
@@ -102,9 +105,9 @@ different right answer on Metal:
 
 **(a) `phis` accumulation (`atomicAddDouble`).** The real issue. A SHAP value is a sum of many
 signed, partially-cancelling path contributions; fp32 accumulation error grows with model size.
-Three implementations to build and compare in Phase 2:
+Phase 2 built and compared three implementations:
 
-1. **Plain fp32 `atomic_float` (fast mode, initial default candidate).** Hardware-accelerated on
+1. **Plain fp32 `atomic_float` (accepted fast default).** Hardware-accelerated on
    Apple Silicon. Collisions on a given `phis[row, feature]` cell come only from distinct
    path-groups that share the feature (within a SIMD-group each lane writes a different feature;
    across the row loop each iteration writes a different row), which limits contention — but
@@ -113,12 +116,13 @@ Three implementations to build and compare in Phase 2:
 2. **SIMD-group pre-aggregation before atomics.** Because packed paths within a bin frequently
    share those hot root/high-level features, aggregating contributions by `(group, feature)`
    inside the SIMD-group (shuffle-based segmented reduction) before touching global memory can
-   meaningfully cut atomic traffic on exactly the cells most prone to contention. Whether the
-   shuffle cost pays for the atomic savings is an empirical Phase-2 question.
-3. **Two-stage deterministic reduction (deterministic mode).** Kernel writes privatized partials
-   (per threadgroup or per bin-slice), a second fixed-order reduction pass combines them.
-   Run-to-run bit-stable — the right mode for CI and regulated settings, at extra memory and a
-   second dispatch.
+   meaningfully cut atomic traffic on exactly the cells most prone to contention. Phase 2 found
+   that the shuffle/key-matching cost did **not** repay the saved atomics on either the 3.43×
+   stress-traffic reduction or the synthetic 16× hot-cell reduction.
+3. **Two-stage deterministic reduction (deterministic mode).** The kernel writes one canonical
+   partial per non-root element and a second fixed-order pass reduces each output cell. Row tiling
+   enforces a configurable scratch cap. It is run-to-run bit-stable—the right mode for CI and
+   regulated settings—at extra memory and dispatch cost.
 
 A **fixed-point split-hi/lo accumulator** (scale by 2^k, `atomic_fetch_add` on a low `atomic_uint`
 word, propagate carries into a high word via overflow detection on the returned old value) remains
@@ -128,15 +132,21 @@ unsound**: a 32-bit CAS cannot atomically update a value-plus-compensation pair,
 writers corrupt the compensation term.
 
 The evidence so far (§9): sequential-CPU fp32 accumulation on a 500-tree depth-8 model shows max
-error 3.8e-5 absolute / 6.5e-5 elementwise-relative (floored), and shuffling the accumulation
-order across 5 seeds moves results by ≤4.2e-5 — four orders of magnitude below upstream's own
-`np.allclose(…, 1e-1, 1e-1)` acceptance bar. Encouraging, but it is a *CPU proxy*: it does not
+error 3.8e-5 absolute / 6.3e-5 elementwise-relative (floored), and shuffling the accumulation
+order across 5 seeds moves results by ≤6.1e-5 in the recorded run. That is roughly 1,600× (over
+three orders of
+magnitude) below a 0.1 absolute scale, but it is not directly comparable to upstream's mixed
+absolute/relative `np.allclose(…, 1e-1, 1e-1)` test. Encouraging, but it is a *CPU proxy*: it does not
 measure true concurrent interleaving, sustained hot-cell contention, or run-to-run variance on
-device. The paper's history is also friendly — early GPUTreeShap accumulated in fp32; upstream
-moved to fp64 because on CUDA it was nearly free, not because fp32 was catastrophic. **Status:
-fp32 atomics are the initial fast mode; the accepted production default is decided in Phase 2
-from the three-way on-device comparison (accuracy, determinism, throughput), including a
-hot-feature adversarial model and ≥100-run repeatability.**
+device. Early GPUTreeShap accumulated in fp32; commit `2b0ba96` ("Determinism") introduced the
+double temporary/output and double atomics together with a determinism test. The upstream source
+does not document that change as "nearly free" or quantify fp32 failure, so neither motivation is
+assumed here. **Phase-2 decision:** plain fp32 atomics are the production throughput default. On
+the M4 Max stress workload they take 0.6206 s for 8,192 rows versus 12.0345 s for 16-thread
+XGBoost CPU (19.39× steady-state API speedup), with max error 7.49e-5. Deterministic mode is the
+fixed-order fallback (zero repeat spread, 1.2905 s, 256 MiB scratch); SIMD aggregation improves
+fp32 error but is slower. Full methods and caveats are in
+`docs/04-phase2-performance-results.md`.
 
 **(b) `zero_fraction` stored as double.** It's a probability (cover ratio); computed on host in
 fp64, *stored* fp32 in the GPU path buffer. The per-path product that matters (bias) never runs on
@@ -157,26 +167,31 @@ shared memory). Solved.
 metal-treeshap/
 ├── include/metal_treeshap/        # portable C++20, no Metal/CUDA types
 │   ├── paths.h                    #   PathElement, XgboostSplitCondition
-│   └── preprocess.h               #   dedup, BFD/NF bin packing, sort, segments, bias
+│   ├── preprocess.h               #   dedup, BFD/NF bin packing, sort, segments, bias
+│   └── deterministic.h            #   canonical partial/reduction plan
 ├── reference/reference_shap.h     # scalar CPU oracle (float compute, fp32/fp64 accumulation)
-├── shaders/treeshap.metal         # ShapKernel port (SIMD-group cooperative)
-├── src/metal_host.hpp             # metal-cpp: device, PSO, buffers, dispatch
+├── shaders/treeshap.metal         # atomic, SIMD-aggregate, deterministic kernels
+├── src/metal_host.hpp             # compiled model, PSOs, buffers, tiled dispatch
+├── src/main_benchmark.cpp         # persistent native Phase-2 timing harness
+├── third_party/metal-cpp/          # pinned Apple metal-cpp header release
 ├── tools/extract_paths.py         # XGBoost JSON dump → path elements (covers → zero_fractions)
 ├── tests/                         # preprocess unit tests; golden tests vs xgboost pred_contribs
-├── benchmarks/benchmark_mac.py    # upstream benchmark.py adapted: CPU baselines vs Metal
+├── benchmarks/phase2_*            # hashed workloads, shuffled sweeps, CPU baseline, schema
+├── benchmarks/results/            # verified machine-readable result summary
 └── python/ (Phase 3)              # nanobind bindings → metaltreeshap wheel
 ```
 
 Data flow: `Booster` → (Python/C++ extractor) raw path elements + per-group intercepts → host
 preprocess (validate raw → dedup → validate merged → BFD pack → sort → segments; bias in fp64) →
-persistent shared `MTLBuffer`s (elements, segments; dataset zero-copy only when page-aligned and
+persistent shared or private `MTLBuffer`s (elements, segments; dataset zero-copy only when page-aligned and
 page-multiple, else a persistent staging copy) → one compute dispatch of `ceil(bins·banks/8)`
 threadgroups × 256 threads → result copied **once** from the shared output buffer into the
 caller's array (a zero-copy buffer-view API is a Phase-3 option; do not call this path
-"no copy").
+"no copy"). Deterministic mode instead issues tiled partial/reduction dispatch pairs inside one
+command buffer, with explicit buffer barriers and bounded private scratch.
 
 The kernel keeps upstream's exact decomposition — lane = path element, SIMD-group = bin of paths ×
-bank of rows, `rows_per_simdgroup` as a function constant (default 1,024, tuned in Phase 2) — and
+bank of rows, `rows_per_simdgroup` as a runtime tuning parameter (M4 Max default **256**) — and
 replaces `active_labeled_partition` with the sorted-contiguity boundary computation:
 
 ```metal
@@ -214,7 +229,7 @@ original motivation for an MLX intermediate step (validate MSL semantics before 
 code) is spent. Implementing the kernel twice buys nothing; MLX remains an optional harness for
 quick Python-side experiments, not a required phase.
 
-The host follows a **compiled-model design** (implemented in draft in `src/metal_host.hpp`):
+The host follows an implemented **compiled-model design** in `src/metal_host.hpp`:
 `Explainer::Compile()` does all O(model) work once — preprocess, validate, pack, upload
 persistent element/segment buffers, fold path bias + model intercept per group — and
 `Explain()` reuses a growable output buffer and reports per-phase timings (upload, encode, GPU,
@@ -269,36 +284,41 @@ required intercepts, internal serialization, RAII buffer guards); CMake shader s
 optional behind toolchain detection so the portable quickstart works without full Xcode; ASAN/
 UBSAN option added (validation runs were clean).
 
-**Phase 1 — End-to-end Metal correctness (~1-2 weeks). SUBSTANTIALLY MET (validation_v3).**
-The compiled-model host logic has now run all six frozen fixtures on an M4 Max (§9 table) at
-three `rows_per_simdgroup` settings, covering multi-bin, multi-bank, partial-SIMD bins, the
-`deep31` genuine lane-31 case, empty-model/zero-row paths and repeated calls — max error 6.5e-6.
-Since then the host gained the v3 hardening round (exception-safe constructors via ownership
-guards, checked `num_cols+1` and byte products, finite-intercept requirement, mutex-protected
-tuning, 64-bit shader work math + 32-bit-grid dispatch guard, `maxTotalThreadsPerThreadgroup`
-check) and the validation harness is checked in (`src/main_metal.cpp`, `fixture_metal` CTest).
-Remaining to close Phase 1: one on-device run of the checked-in runner (`ctest -R fixture`, or
-`python tests/test_fixture.py build/reference_cli --metal-cli build/metal_cli`) to confirm the
-repository-reproducible form, ideally in CI. Exit: that run green; then Phase 2.
+**Phase 1 — End-to-end Metal correctness. COMPLETE locally on M4 Max.**
+The checked-in compiled-model host and runner execute all seven frozen fixtures at
+`rows_per_simdgroup` settings 1, 7 and 1,024, covering multi-bin, multi-bank, partial-SIMD bins,
+the `deep31` genuine lane-31 case, a real XGBoost missing-only NaN path, empty-model/zero-row
+paths and repeated calls — max error 6.51e-6 (§9). The host includes exception-safe movable
+ownership guards, checked `num_cols+1` and byte products, finite-intercept requirements,
+mutex-protected tuning, 64-bit shader work math with a 32-bit-grid dispatch guard, and a
+`maxTotalThreadsPerThreadgroup` check. On Apple platforms CMake requires the pinned Metal host
+targets instead of silently skipping them, and the repository-reproducible command is
+`ctest --test-dir build -R 'metal|fixture' --output-on-failure` (or, for one row-bank setting,
+`python tests/test_fixture.py build/reference_cli --metal-cli build/metal_cli`). CI on an
+Apple-Silicon runner remains desirable, but is not a local Phase-1 correctness blocker.
 
-**Phase 2 — Accumulation + tuning (~2 weeks).**
-Implement and compare the three accumulation strategies (§4a): plain `atomic_float`, SIMD-group
-pre-aggregation by (group, feature), two-stage deterministic reduction — on accuracy vs fp64
-reference, run-to-run repeatability (≥100 runs), a hot-feature adversarial model, and throughput.
-Sweep `rows_per_simdgroup` / threadgroup size via function constants; Xcode GPU capture + Metal
-System Trace for occupancy, atomic throughput, shuffle density (~2 cycles/shuffle sustained is
-the expected ceiling); shared- vs private-storage ablation for the model buffers. Exit: accepted
-default accumulation mode with published evidence; kernel within sight of the §7 gate.
+**Phase 2 — Accumulation + tuning. COMPLETE on M4 Max.**
+All three strategies (§4a) are integrated through one host/CLI API and tested against every
+fixture. The persistent benchmark performs hashed workload verification, shuffled outer rounds,
+accuracy/additivity gates, exact pairwise-repeat metrics, launch/storage sweeps, and CPU/Metal
+phase-separated timing. The accepted default is atomic + shared model storage + 256
+rows/SIMD-group + 256 threads/threadgroup. It achieves 19.39× steady-state speedup on the
+documented 500-tree workload. A separate derived setup-plus-call estimate is 6.72×, but it
+combines non-symmetric components and is not direct first-answer latency. SIMD pre-aggregation is
+retained but slower; deterministic mode is bit-stable with bounded scratch. See
+`docs/04-phase2-performance-results.md` and the machine-readable summary under
+`benchmarks/results/`.
 
-**Phase 3 — Persistent-model API + packaging (~2 weeks).**
-Harden the compiled-model host (persistent buffers, batching over large row counts, zero-copy
-input path); nanobind bindings; `MetalTreeExplainer` with the `shap` package's Explainer
+**Phase 3 — Python API + packaging (~2 weeks).**
+Extend the existing persistent compiled-model host with batching over large row counts and a
+zero-copy input path; nanobind bindings; `MetalTreeExplainer` with the `shap` package's Explainer
 interface; model parsers for LightGBM and sklearn (reuse `shap`'s `TreeEnsemble` normalization;
 covers exist for all of them); wheels (cibuildwheel, macOS-14 arm64 runner); CI running the
 golden + fixture suites on an Apple-Silicon GitHub runner.
 
-**Phase 4 — Benchmarks, variants + upstreaming (~2-3 weeks).**
-Reproducible CPU/Metal benchmark suite (§7) with phase-separated timings and energy; then
+**Phase 4 — Full benchmark matrix, variants + upstreaming (~2-3 weeks).**
+Extend the Phase-2 reproducible CPU/Metal benchmark foundation to the complete upstream dataset /
+model matrix and add energy telemetry; then
 interaction values, Shapley-Taylor, interventional kernels (the ballot/popcount tricks port 1:1 —
 `simd_ballot`+`popcount` are native; W table from host); propose `MetalTree` explainer upstream
 to `shap`; write-up comparing M-series vs the published V100 results normalized per watt — the
@@ -312,10 +332,11 @@ conditions; direct XGBoost plugin so `device="metal"` works natively.
 
 Mirror upstream `benchmark/benchmark.py` (same datasets: adult, covtype, cal_housing,
 fashion_mnist; same 12 model configs: 10-1,000 rounds × depth 3/8/16; same 10K explain rows; 5
-repetitions) so results are directly comparable to the published V100 table — with two honest
-deviations: adult/fashion_mnist categoricals are ordinal-encoded to numeric (the extractor
-rejects categorical splits for now; CPU and Metal see identical encoded data, so the comparison
-is fair), and timing is phase-separated — extraction+preprocess+buffer setup reported once as
+repetitions) to align the workload shape with the published V100 table. Treat the V100 figures as
+context rather than universal direct comparisons: adult/fashion_mnist categoricals are
+ordinal-encoded to numeric (the extractor rejects categorical splits for now, although CPU and
+Metal still see identical encoded data), and timing is phase-separated —
+extraction+preprocess+buffer setup reported once as
 compiled-model cost, per-call explain time measured at steady state; only the latter enters the
 speedup. Baselines on the *same* Mac: `xgboost` CPU `pred_contribs` (all cores),
 `shap.TreeExplainer`, single-thread as reference point. Metrics: wall time, rows/s, speedup,
@@ -323,21 +344,31 @@ max|Δ| vs fp64 CPU, peak memory, and Joules (`sudo powermetrics --samplers gpu_
 Report M4 Pro/Max (and whatever other M-series are at hand) — plus the V100 numbers from the
 README as context.
 
-Honest expectations: the V100 achieved 13-19× against 40 Xeon cores. An M4 Max GPU is in the same
+Performance hypothesis: the V100 achieved 13-19× against 40 Xeon cores. An M4 Max GPU is in the same
 FP32-TFLOPS class as V100 but its CPU competitor (12 performance cores) is far stronger per-core
 than 2015 Xeons, and memory bandwidth (546 GB/s vs 900 GB/s) is lower — though this workload is
-compute/shuffle-bound with a tiny working set, not bandwidth-bound. A defensible target is
-**5-10× vs on-device CPU for med/large models**, with small models remaining CPU-territory
-(same as CUDA). Perf-per-watt should be dramatic (~40-60 W package vs 300 W+ for the DGX-1 setup).
+expected to be compute/shuffle-heavy with a small model working set. The project target is
+**5-10× vs on-device CPU for med/large models**, not a forecast; the hard acceptance gate remains
+the ≥2× end-to-end result in §2. Small models may remain CPU territory, as in the CUDA results.
+Perf-per-watt is likewise an experiment to measure with `powermetrics`, not something inferred
+from device TDPs.
+
+**Phase-2 measured checkpoint.** The 500-tree/depth-8 synthetic stress workload reaches 19.39×
+steady-state API speedup. Adding separately measured setup components yields a 6.72× estimate,
+but that is not direct model-to-first-answer latency: Metal path extraction is excluded and the
+CPU load component includes the expected file. The steady-state result clears the performance
+target on this case. It does not replace the full matrix above: only one M4 Max and synthetic
+stress/hot workloads were measured, `shap.TreeExplainer` and energy were not, and p10/p90 are
+observed dispersion rather than confidence intervals.
 
 ## 8. Risks and mitigations
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| fp32 accumulation error or run-to-run variance unacceptable on huge ensembles | Medium | CPU-proxy evidence gathered (§9: error and order-spread both ~4e-5 on 500-tree stress); three-way on-device comparison in Phase 2 with hot-feature adversarial model and ≥100-run repeatability; deterministic two-stage mode as the fallback |
-| Atomic contention on hot features (root splits shared by most paths) | Medium | Hardware float atomics; contention diluted across rows; SIMD-group pre-aggregation by (group, feature) designed in §4a; per-threadgroup privatization as further fallback |
-| XGBoost serialization churn (base_score became a vector in 3.1; future schema drift) | Medium | Extractor reads the raw JSON model with version-robust parsing; suite verified on 2.0.3 **and** 3.1.2; frozen fixtures (`tests/fixtures/`) catch drift independently of an installed xgboost |
-| `simd_shuffle` undefined-lane semantics differ from CUDA (`shfl_up` low lanes) | Low (retired on fixtures) | Clamped-index shuffles; kernel executed correctly on M4 Max fixtures; model-scale differential tests in Phase 1 |
+| fp32 accumulation error or run-to-run variance unacceptable on huge ensembles | Medium | Phase-2 stress atomics remain <8.3e-5 at the measured gates; deterministic two-stage mode gives zero repeat spread with bounded scratch when bit stability is required |
+| Atomic contention on hot features (root splits shared by most paths) | Low on tested M4 Max; device-dependent | Hardware float atomics won both stress and 16× hot-traffic tests; SIMD-group pre-aggregation remains selectable for future devices/models |
+| XGBoost serialization churn (base_score became a vector in 3.1; future schema drift) | Medium | Extractor reads the raw JSON model with version-robust parsing; the expanded 16-case suite passes 2.0.3 and 3.1.2; frozen fixtures catch drift without installed xgboost |
+| `simd_shuffle` undefined-lane semantics differ from CUDA (`shfl_up` low lanes) | Low (retired on fixtures) | Clamped-index shuffles; kernel executed correctly on M4 Max model fixtures and the lane-31 comb |
 | MSL struct layout/alignment mismatch with C++ | Low | Explicit 32-B `GpuPathElement` layout, `static_assert` on the C++ side, fixture-verified on device |
 | Malformed/hostile path input reaching out-of-bounds writes | Low (closed) | Phase 0.5 validation: one-root, range, finiteness, narrowing checks before packing |
 | Apple-Silicon CI availability for wheels/tests | Low | GitHub macOS-14 arm64 runners exist; fixture tests need no xgboost |
@@ -346,9 +377,8 @@ compute/shuffle-bound with a tiny working set, not bandwidth-bound. A defensible
 
 ## 9. Evidence gathered during proposal preparation
 
-Two rounds of evidence exist: the Phase 0/0.5 CPU pipeline executed in a Linux sandbox (no Metal
-required by design), and an **independent external validation on an M4 Max** that compiled and
-ran the draft kernel.
+Evidence now includes the Phase 0/0.5 CPU pipeline on Linux, multiple independent M4 Max reviews,
+and a repository-local M4 Max build and differential run of the checked-in host and runner.
 
 **External M4 Max validation (independent reviewer, three rounds).** Rounds 1-2:
 `shaders/treeshap.metal` compiled under Metal 3; execution width 32, 256-thread threadgroup
@@ -356,7 +386,8 @@ honored; exact results on simple and multi-row-bank fixtures, 5.96e-7 on a packe
 fixture; portable suites reproduced independently (ASAN+UBSAN clean, fixtures byte-identical,
 expected contributions within 6e-8 across environments). **Round 3 ran the compiled-model host
 logic itself** (CompiledModel + Explain; shader runtime-compiled via newLibraryWithSource) over
-all six frozen fixtures, at `rows_per_simdgroup` ∈ {1, 7, 1024}, plus empty-model, zero-row,
+all six fixtures that existed in that round, at `rows_per_simdgroup` ∈ {1, 7, 1024}, plus
+empty-model, zero-row,
 intercept, repeated-call and invalid-tuning behavior:
 
 | fixture | rows | raw elements | bins | max Metal error |
@@ -368,42 +399,48 @@ intercept, repeated-call and invalid-tuning behavior:
 | parallel-trees | 200 | 4,668 | 132 | 5.96e-7 |
 | regression-missing | 300 | 800 | 24 | 1.19e-6 |
 
-That is most of Phase 1's technical exit criterion. The remaining gap was repository
-reproducibility — the harness used was the reviewer's own — which `src/main_metal.cpp`
-(same CSV contract as reference_cli, runtime-source fallback) + `tests/test_fixture.py
---metal-cli` + the `fixture_metal` CTest entry now close.
+Those external rounds established the kernel and host semantics. The checked-in
+`src/main_metal.cpp` (same CSV contract as `reference_cli`, runtime-source fallback),
+`tests/test_fixture.py --metal-cli`, and required-Metal CMake/CTest path now reproduce that
+validation locally across settings 1, 7 and 1,024. The current seven-fixture run also includes
+the real XGBoost missing-only repeated-feature case, pinning empty numeric interval + NaN routing
+through the Metal engine. This closes Phase 1 correctness; it does not provide a speedup
+measurement.
 
-**CPU pipeline results**, from `tests/RESULTS.md` — golden suite green on **xgboost 2.0.3 and
-3.1.2** (both built from source in-sandbox); table from the 3.1.2 run:
+**CPU pipeline results**, from `tests/RESULTS.md` — the expanded 16-case suite is green on
+**xgboost 2.0.3 and 3.1.2**. Table from the 3.1.2 run:
 
 | model | booster | trees | depth | paths | max\|phi − xgb\| | sum-to-margin | fp32 abs | fp32 rel (elem., floored) | order spread |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| regression + 15% missing | gbtree | 25 | 3 | 200 | 4.2e-7 | 7.5e-7 | 9.1e-7 | 1.0e-5 | — |
-| binary logistic | gbtree | 50 | 6 | 2,511 | 7.1e-7 | 1.5e-6 | 3.9e-6 | 2.6e-5 | — |
-| multiclass (3 groups) | gbtree | 90 | 4 | 1,364 | 2.7e-7 | 4.8e-7 | 1.1e-6 | 2.2e-5 | — |
-| multiclass, num_parallel_tree=2 | gbtree | 60 | 4 | 1,364 | 2.1e-7 | 2.9e-7 | 5.7e-7 | 1.2e-5 | — |
-| DART (rate_drop 0.2) | dart | 30 | 4 | 380 | 4.1e-7 | 5.8e-7 | 1.0e-6 | 1.4e-5 | — |
-| stress regression | gbtree | 500 | 8 | 65,374 | 8.0e-6 | 8.3e-6 | 3.8e-5 | 6.5e-5 | 4.2e-5 |
+| regression + 15% missing | gbtree | 25 | 3 | 200 | 4.2e-7 | 7.5e-7 | 9.0e-7 | 9.2e-6 | — |
+| binary logistic | gbtree | 50 | 6 | 2,511 | 7.1e-7 | 1.5e-6 | 3.9e-6 | 2.7e-5 | — |
+| multiclass (3 groups) | gbtree | 90 | 4 | 1,369 | 2.7e-7 | 4.8e-7 | 1.1e-6 | 1.6e-5 | — |
+| multiclass, num_parallel_tree=2 | gbtree | 60 | 4 | 938 | 1.5e-7 | 2.9e-7 | 5.8e-7 | 1.3e-5 | — |
+| DART (rate_drop 0.2) | dart | 30 | 4 | 480 | 4.2e-7 | 5.8e-7 | 1.0e-6 | 1.3e-5 | — |
+| missing-only repeated-feature path | gbtree | 1 | 2 | 3 | 4.8e-7 | 4.8e-7 | 4.8e-7 | 6.0e-8 | — |
+| stress regression | gbtree | 500 | 8 | 65,374 | 8.0e-6 | 8.3e-6 | 3.8e-5 | 6.3e-5 | 6.1e-5 |
 
-1. **Golden correctness, cross-version.** Extractor (raw-JSON based: tree_info groups, vector
+1. **Golden correctness.** Extractor (raw-JSON based: tree_info groups, vector
    intercepts, DART weight_drop) + preprocess + scalar reference reproduce
    `xgboost.predict(pred_contribs=True)` elementwise to ~1e-6, intercept included — no post-hoc
-   patching — on both a pre-3.1 and a post-3.1 xgboost. The `num_parallel_tree` and DART rows are
-   regression tests for the two extractor bugs the external review demonstrated.
+   patching on both a pre-3.1 and a post-3.1 XGBoost. The `num_parallel_tree`, DART, and real
+   missing-only-path rows are regression tests for concrete bugs exposed by external review.
 2. **fp32 accumulation study (CPU proxy).** Absolute error ≤3.8e-5; elementwise-relative
-   (floored at 1e-3·max|phi|, per review) ≤6.5e-5; max pairwise spread across shuffled
+   (floored at 1e-3·max|phi|, per review) ≤6.3e-5; max pairwise spread across shuffled
    accumulation orders ~4-6e-5 on the stress model (environment-dependent — the stdlib shuffle
-   differs across platforms; magnitudes, not exact values, are the signal). Informative, not
-   decisive: true concurrent atomics are measured on-device in Phase 2. Terminology note: the
+   differs across platforms; magnitudes, not exact values, are the signal). This proxy is now
+   complemented by true concurrent Phase-2 device measurements: worst atomic error <7.5e-5 and
+   max observed pairwise spread <6.2e-5 in the focused stress run. Terminology note: the
    "reference" throughout is *float recurrences with selectable fp64/fp32 accumulation* — kernel
    arithmetic at kernel precision, by design — not a full-double computation; the full-double
    oracle exists separately in the comb test below.
 3. **Property-based additivity + depth-31 conditioning.** Random constraint-aware ensembles —
-   stumps, spine-guaranteed deep trees (cooperative groups ≥26 post-dedup), repeated features,
+   stumps, spine-guaranteed deep trees (exact 32-element groups post-dedup), repeated features,
    ~1e-4 cover fractions, NaN routing — satisfy sum(phis)+bias = margin-by-traversal in both
    accumulation modes. The deterministic 32-element comb additionally compares against an
-   independent full-double implementation: double-oracle additivity 1.9e-13 (logic exact); float
-   recurrences deviate from the double oracle by ≤~9e-6 **per attribution** (elementwise), and
+   independent exact-Shapley, double-precision subset-size DP that does not use the extend/unwind
+   recurrence: oracle additivity residual 2.2e-16; float recurrences deviate from it by
+   9.41e-6 **per attribution** (maximum elementwise), and
    those signed ~e-6 deviations accumulate to a **row-sum residual** of ~1.3e-4 — an additivity
    residual, not a per-attribution error bound. The CUDA kernel uses the same float recurrence,
    so similar deep-path sensitivity is a reasonable inference, though unmeasured on CUDA. All
@@ -415,9 +452,10 @@ reproducibility — the harness used was the reviewer's own — which `src/main_
    `tests/test_fixture.py` replays them with **no xgboost installed** (the extractor parses the
    model file directly), pinning the pipeline against future interface drift.
 
-The Metal kernel (`shaders/treeshap.metal`) and metal-cpp host (`src/metal_host.hpp`) are drafted
-against these verified semantics but remain **uncompiled/untested** until Phase 1 hardware time —
-they are starting points, not shipped code.
+The Metal kernel (`shaders/treeshap.metal`), metal-cpp host (`src/metal_host.hpp`), and checked-in
+runner are compiled and correctness-tested locally on an M4 Max. Phase 2 selected the production
+throughput mode and demonstrated measured acceleration; the next evidence gap is the Phase-4
+cross-dataset, cross-device, energy-instrumented matrix.
 
 ## 10. References
 

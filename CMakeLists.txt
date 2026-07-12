@@ -18,11 +18,20 @@ endif()
 # ---- Portable targets (build & run on any platform) ----
 add_executable(test_preprocess tests/test_preprocess.cpp)
 add_executable(test_property tests/test_property_additivity.cpp)
+add_executable(test_csv_io tests/test_csv_io.cpp)
+add_executable(test_deterministic_plan tests/test_deterministic_plan.cpp)
 add_executable(reference_cli src/main_reference.cpp)
 
 enable_testing()
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME preprocess COMMAND test_preprocess)
 add_test(NAME property_additivity COMMAND test_property)
+add_test(NAME csv_io COMMAND test_csv_io)
+add_test(NAME deterministic_plan COMMAND test_deterministic_plan)
+add_test(NAME reference_cli_validation
+         COMMAND ${Python3_EXECUTABLE}
+                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_reference_cli.py
+                 $<TARGET_FILE:reference_cli>)
 # Golden test needs python + xgboost (verified on 2.0.3 and 3.1.2):
 #   python tests/test_vs_xgboost.py $<TARGET_FILE:reference_cli>
 # Fixture test needs only python + numpy (no xgboost):
@@ -75,31 +84,99 @@ if(APPLE)
                    "shaders/treeshap.metal instead.")
   endif()
 
-  # Metal fixture runner (the repository-reproducible validation harness). Requires
-  # vendored metal-cpp headers: download from https://developer.apple.com/metal/cpp/
-  # and unpack to third_party/metal-cpp (so that third_party/metal-cpp/Metal/Metal.hpp
-  # exists). Works with OR without the offline toolchain (runtime source fallback).
-  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/metal-cpp/Metal/Metal.hpp)
-    add_executable(metal_cli src/main_metal.cpp)
-    target_include_directories(metal_cli PRIVATE
-                               ${CMAKE_CURRENT_SOURCE_DIR}/third_party/metal-cpp)
-    target_link_libraries(metal_cli "-framework Metal" "-framework Foundation"
-                          "-framework QuartzCore")
-    if(METAL_TOOLCHAIN_OK)
-      add_dependencies(metal_cli metallib)
-    endif()
-    add_test(NAME fixture_metal
-             COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_fixture.py
-                     $<TARGET_FILE:reference_cli> --metal-cli $<TARGET_FILE:metal_cli>)
-    set_tests_properties(fixture_metal PROPERTIES
-                         ENVIRONMENT "METAL_TREESHAP_KERNEL=${CMAKE_CURRENT_SOURCE_DIR}/shaders/treeshap.metal")
-  else()
-    message(STATUS "third_party/metal-cpp not found; metal_cli target skipped "
-                   "(see comment above for vendoring instructions).")
+  # Metal is a mandatory part of an Apple build: a missing dependency must fail at
+  # configure time, never produce a deceptively green portable-only `ctest -R fixture`.
+  # The pinned metal-cpp headers are committed under third_party/metal-cpp.
+  set(METAL_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/metal-cpp)
+  if(NOT EXISTS ${METAL_CPP_DIR}/Metal/Metal.hpp OR
+     NOT EXISTS ${METAL_CPP_DIR}/Foundation/Foundation.hpp)
+    message(FATAL_ERROR
+            "Pinned third_party/metal-cpp headers are missing; restore the complete "
+            "repository checkout before configuring an Apple build")
   endif()
+
+  add_executable(metal_cli src/main_metal.cpp)
+  add_executable(test_metal_host tests/test_metal_host.cpp)
+  add_executable(phase2_benchmark src/main_benchmark.cpp)
+  foreach(target metal_cli test_metal_host phase2_benchmark)
+    target_include_directories(${target} PRIVATE ${METAL_CPP_DIR})
+    target_link_libraries(${target} "-framework Metal" "-framework Foundation"
+                          "-framework QuartzCore")
+  endforeach()
+  if(METAL_TOOLCHAIN_OK)
+    add_dependencies(metal_cli metallib)
+    add_dependencies(phase2_benchmark metallib)
+  endif()
+
+  add_test(NAME metal_host_edges
+           COMMAND test_metal_host ${CMAKE_CURRENT_SOURCE_DIR}/shaders/treeshap.metal)
+  add_test(NAME metal_cli_validation
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_metal_cli.py
+                   $<TARGET_FILE:metal_cli>)
+  add_test(NAME phase2_benchmark_smoke
+           COMMAND phase2_benchmark
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/deep31/paths.csv
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/deep31/X.csv 1
+                   --intercepts 0.5
+                   --kernel ${CMAKE_CURRENT_SOURCE_DIR}/shaders/treeshap.metal
+                   --expected
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/deep31/expected_contribs.csv
+                   --max-abs-error 0.001
+                   --warmup 1 --iterations 2 --row-limit 4
+                   --rows-per-simdgroup 7 --threads-per-threadgroup 64
+                   --accumulation simdgroup --model-storage private)
+  add_test(NAME phase2_benchmark_deterministic_smoke
+           COMMAND phase2_benchmark
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/deep31/paths.csv
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/deep31/X.csv 1
+                   --intercepts 0.5
+                   --kernel ${CMAKE_CURRENT_SOURCE_DIR}/shaders/treeshap.metal
+                   --expected
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/deep31/expected_contribs.csv
+                   --max-abs-error 0.001
+                   --warmup 1 --iterations 2 --row-limit 4
+                   --rows-per-simdgroup 7 --threads-per-threadgroup 64
+                   --accumulation deterministic --deterministic-scratch-mib 1
+                   --model-storage private)
+
+  foreach(rows_per_simdgroup 1 7 1024)
+    add_test(NAME fixture_metal_rps${rows_per_simdgroup}
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_fixture.py
+                     $<TARGET_FILE:reference_cli>
+                     --metal-cli $<TARGET_FILE:metal_cli>
+                     --metal-rows-per-simdgroup ${rows_per_simdgroup})
+    set_tests_properties(
+      fixture_metal_rps${rows_per_simdgroup}
+      PROPERTIES ENVIRONMENT
+                 "METAL_TREESHAP_KERNEL=${CMAKE_CURRENT_SOURCE_DIR}/shaders/treeshap.metal")
+  endforeach()
+
+  # One repository-permanent all-fixture differential for each Phase-2 path. The three
+  # atomic row-bank variants above retain the Phase-1 boundary coverage; these two tests
+  # ensure SIMD aggregation and deterministic reduction cannot silently regress.
+  foreach(accumulation simdgroup deterministic)
+    add_test(NAME fixture_metal_${accumulation}_rps7
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_fixture.py
+                     $<TARGET_FILE:reference_cli>
+                     --metal-cli $<TARGET_FILE:metal_cli>
+                     --metal-rows-per-simdgroup 7
+                     --metal-accumulation ${accumulation})
+    set_tests_properties(
+      fixture_metal_${accumulation}_rps7
+      PROPERTIES ENVIRONMENT
+                 "METAL_TREESHAP_KERNEL=${CMAKE_CURRENT_SOURCE_DIR}/shaders/treeshap.metal")
+  endforeach()
 endif()
 
 # Portable fixture regression (needs python3 + numpy; no xgboost).
 add_test(NAME fixture_portable
-         COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_fixture.py
+         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_fixture.py
                  $<TARGET_FILE:reference_cli>)
+add_test(NAME phase2_workload_generator
+         COMMAND ${Python3_EXECUTABLE}
+                 ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/phase2_workloads.py hot
+                 ${CMAKE_CURRENT_BINARY_DIR}/phase2_hot_smoke
+                 --trees 4 --rows 9 --seed 7 --force)

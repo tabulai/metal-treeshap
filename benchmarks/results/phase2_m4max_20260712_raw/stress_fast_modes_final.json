@@ -1,0 +1,4892 @@
+{
+  "created_utc": "2026-07-12T22:09:10.879616+00:00",
+  "design": {
+    "iterations_per_invocation": 7,
+    "order": "deterministic_shuffle",
+    "order_seed": 20260715,
+    "outer_rounds": 3,
+    "quantiles": "linear interpolation at p*(n-1), native per invocation",
+    "row_limit": 0,
+    "warmup": 3
+  },
+  "environment": {
+    "benchmark": "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+    "benchmark_sha256": "b2c6fe6e9ccf05d37208bdee604d44bc4514fd94e38a3b2340d6e9d2344ec19b",
+    "cpu_brand": "Apple M4 Max",
+    "git_commit": "897363d4f7400d2a52177d58a79970a11c6543c2",
+    "git_status_porcelain": "M .gitignore\n M CMakeLists.txt\n M NOTICE\n M README.md\n M benchmarks/benchmark_mac.py\n M docs/01-cuda-acceleration-assessment.md\n M docs/02-apple-gpu-project-proposal.md\n M include/metal_treeshap/preprocess.h\n M shaders/treeshap.metal\n M src/csv_io.h\n M src/main_metal.cpp\n M src/main_reference.cpp\n M src/metal_host.hpp\n M tests/RESULTS.md\n M tests/test_fixture.py\n M tests/test_preprocess.cpp\n M tests/test_property_additivity.cpp\n M tests/test_vs_xgboost.py\n?? benchmarks/phase2_cpu_xgboost.py\n?? benchmarks/phase2_run.py\n?? benchmarks/phase2_schema.json\n?? benchmarks/phase2_workloads.py\n?? docs/03-phase2-deterministic-design.md\n?? include/metal_treeshap/deterministic.h\n?? src/main_benchmark.cpp\n?? tests/fixtures/missing-only-path/\n?? tests/test_csv_io.cpp\n?? tests/test_deterministic_plan.cpp\n?? tests/test_metal_cli.py\n?? tests/test_metal_host.cpp\n?? tests/test_reference_cli.py\n?? third_party/",
+    "gpu_display_profile": "Graphics/Displays:\n\n    Apple M4 Max:\n\n      Chipset Model: Apple M4 Max\n      Type: GPU\n      Bus: Built-In\n      Total Number of Cores: 40\n      Vendor: Apple (0x106b)\n      Metal Support: Metal 4\n      Displays:\n        Color LCD:\n          Display Type: Built-in Liquid Retina XDR Display\n          Resolution: 3024 x 1964 Retina\n          Main Display: Yes\n          Mirror: Off\n          Online: Yes\n          Automatically Adjust Brightness: Yes\n          Connection Type: Internal",
+    "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+    "kernel_sha256": "73fffeca914ee8e3a8cf7f7d94d4a6e49c6449e393621ec591c6385971628a51",
+    "logical_cpus": "16",
+    "machine": "arm64",
+    "macos": "ProductName:\t\tmacOS\nProductVersion:\t\t26.2\nBuildVersion:\t\t25C56",
+    "memory_bytes": "137438953472",
+    "physical_cpus": "16",
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "power_settings": "Battery Power:\n Sleep On Power Button 1\n powermode            0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         2\n womp                 0\n networkoversleep     0\n sleep                1\n lessbright           1\n tcpkeepalive         1\n disksleep            10\nAC Power:\n Sleep On Power Button 1\n powermode            2\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         0\n womp                 1\n networkoversleep     0\n sleep                1\n tcpkeepalive         1\n disksleep            10",
+    "python": "3.13.3 (v3.13.3:6280bb54784, Apr  8 2025, 10:47:54) [Clang 15.0.0 (clang-1500.3.9.4)]",
+    "thermal_note": "No privileged temperature/power trace was collected; configuration order is shuffled and outer rounds must be used to expose order/thermal drift.",
+    "thermal_state": "Note: No thermal warning level has been recorded\nNote: No performance warning level has been recorded\nNote: No CPU power status has been recorded"
+  },
+  "results": [
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 2.4318695068359375e-05,
+          "first_run_max_relative": 0.005990614226902835,
+          "first_run_max_row_group_sum_abs": 2.5016750441864133e-05,
+          "first_run_mean_abs": 3.54396944784153e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 3.528594970703125e-05,
+          "worst_run_max_relative": 0.009138602763414383,
+          "worst_run_max_row_group_sum_abs": 3.618770278990269e-05,
+          "worst_run_mean_abs": 3.56134855588736e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "b905f5b1e476d9c7",
+            "71ae7589769b47a2",
+            "31e166cb042e8086",
+            "b741b4d07eabfec2",
+            "838f2295216feccf",
+            "62629aea12e3a3cd",
+            "3b09b767d872fc12"
+          ],
+          "max_pairwise_abs": 2.0503997802734375e-05,
+          "max_pairwise_relative_symmetric": 0.012363670975901186,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.581542583,
+          "model_compile": 0.52894525,
+          "pipeline": 0.152798417,
+          "total_excluding_warmup": 1.26328625,
+          "warmup": 3.416215333
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 7382.701494740442,
+          "rows_per_wall_s": 7380.594364507711
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.981487125,
+            0.994127459,
+            1.067256292,
+            1.109894334,
+            1.155457167,
+            1.135325667,
+            1.129584625
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            3.95e-05,
+            4.6042e-05,
+            2.8666e-05,
+            3.1709e-05,
+            3.9958e-05,
+            3.5208e-05,
+            3.5e-05
+          ],
+          "gpu": {
+            "median": 1.1096209166571498,
+            "p10": 0.9886643000878393,
+            "p90": 1.1409015582408757,
+            "samples": [
+              0.9810491250827909,
+              0.9937410834245384,
+              1.0669988750014454,
+              1.1096209166571498,
+              1.1537067082244903,
+              1.1323647915851325,
+              1.129279499873519
+            ]
+          },
+          "upload_samples": [
+            3.3375e-05,
+            4.2166e-05,
+            3.1625e-05,
+            2.6583e-05,
+            4.5625e-05,
+            3.7458e-05,
+            3.4167e-05
+          ],
+          "wall": {
+            "median": 1.109937709,
+            "p10": 0.9890999838,
+            "p90": 1.1434001828,
+            "samples": [
+              0.981510459,
+              0.994159667,
+              1.067280542,
+              1.109937709,
+              1.155478208,
+              1.135348166,
+              1.129611167
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 1,
+      "sequence": 1,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 2.47955322265625e-05,
+          "first_run_max_relative": 0.006208461622331411,
+          "first_run_max_row_group_sum_abs": 2.4904729798436165e-05,
+          "first_run_mean_abs": 3.5464007508216544e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 2.956390380859375e-05,
+          "worst_run_max_relative": 0.008676465768076014,
+          "worst_run_max_row_group_sum_abs": 3.1393254175782204e-05,
+          "worst_run_mean_abs": 3.549163772335964e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "ab5051b0cc08db8a",
+            "b938c79fde9ec2b6",
+            "4a65032c72fcbfd0",
+            "85c373542de79fb3",
+            "815e95fa9177ba78",
+            "d5db1f096f91254f",
+            "6b767ef1d63f7b66"
+          ],
+          "max_pairwise_abs": 2.47955322265625e-05,
+          "max_pairwise_relative_symmetric": 0.014671854842163157,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.546092125,
+          "model_compile": 0.552977292,
+          "pipeline": 0.108971916,
+          "total_excluding_warmup": 1.2080413330000002,
+          "warmup": 3.222349125
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 7611.050718551421,
+          "rows_per_wall_s": 7606.330022013381
+        },
+        "timing_s": {
+          "api_total_samples": [
+            1.076967334,
+            0.932474458,
+            1.015307083,
+            1.070836084,
+            1.11378375,
+            1.138041917,
+            1.117206125
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            4.375e-05,
+            5.45e-05,
+            2.9458e-05,
+            2.875e-05,
+            2.8375e-05,
+            3.7083e-05,
+            4.4292e-05
+          ],
+          "gpu": {
+            "median": 1.0763297083321959,
+            "p10": 0.981802741670981,
+            "p90": 1.1228054250124841,
+            "samples": [
+              1.0763297083321959,
+              0.9319721665233374,
+              1.0150231251027435,
+              1.070527374977246,
+              1.1129539583344012,
+              1.1375826250296086,
+              1.1095367083325982
+            ]
+          },
+          "upload_samples": [
+            3.3958e-05,
+            6.9917e-05,
+            2.6e-05,
+            4.025e-05,
+            3.05e-05,
+            3.2375e-05,
+            3.9833e-05
+          ],
+          "wall": {
+            "median": 1.076997708,
+            "p10": 0.9821957,
+            "p90": 1.125566933,
+            "samples": [
+              1.076997708,
+              0.932499875,
+              1.01532625,
+              1.070861916,
+              1.113805584,
+              1.138060208,
+              1.117238083
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 0,
+      "sequence": 2,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 6.008148193359375e-05,
+          "first_run_max_relative": 0.017714341993269045,
+          "first_run_max_row_group_sum_abs": 8.277274901047349e-05,
+          "first_run_mean_abs": 6.680056793097295e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 6.771087646484375e-05,
+          "worst_run_max_relative": 0.018026184989139438,
+          "worst_run_max_row_group_sum_abs": 8.277274901047349e-05,
+          "worst_run_mean_abs": 6.850093756863936e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "5e3c949075f843df",
+            "d186816080feb080",
+            "705b49c16aec100d",
+            "30443fc068ef61c1",
+            "800a9787ce5304e6",
+            "2f0e3761d6e841e5",
+            "5c99ff4040c4725c"
+          ],
+          "max_pairwise_abs": 6.771087646484375e-05,
+          "max_pairwise_relative_symmetric": 0.03414459115447244,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.59865275,
+          "model_compile": 0.50339575,
+          "pipeline": 0.105311167,
+          "total_excluding_warmup": 1.207359667,
+          "warmup": 1.416866583
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 12798.599320458601,
+          "rows_per_wall_s": 12792.918080417894
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.705360084,
+            0.65405475,
+            0.641554958,
+            0.640328084,
+            0.614671583,
+            0.615482083,
+            0.631137125
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            3.9042e-05,
+            3.8875e-05,
+            3.0375e-05,
+            2.9709e-05,
+            3.6208e-05,
+            3.0584e-05,
+            3.3625e-05
+          ],
+          "gpu": {
+            "median": 0.640070041641593,
+            "p10": 0.6145776667632162,
+            "p90": 0.6742533249780536,
+            "samples": [
+              0.7049785000272095,
+              0.6537698749452829,
+              0.6412576667498797,
+              0.640070041641593,
+              0.6136370417661965,
+              0.6152047500945628,
+              0.6308716668281704
+            ]
+          },
+          "upload_samples": [
+            2.9417e-05,
+            2.825e-05,
+            4.1375e-05,
+            2.4916e-05,
+            2.6875e-05,
+            2.9708e-05,
+            2.1875e-05
+          ],
+          "wall": {
+            "median": 0.640354292,
+            "p10": 0.6151829336,
+            "p90": 0.6746064746,
+            "samples": [
+              0.70538975,
+              0.654084291,
+              0.64158325,
+              0.640354292,
+              0.614705459,
+              0.61550125,
+              0.631157708
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 1,
+      "sequence": 3,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 3.24249267578125e-05,
+          "first_run_max_relative": 0.01902958501887042,
+          "first_run_max_row_group_sum_abs": 2.8437236323952675e-05,
+          "first_run_mean_abs": 3.456889721248304e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 3.24249267578125e-05,
+          "worst_run_max_relative": 0.01902958501887042,
+          "worst_run_max_row_group_sum_abs": 2.941349521279335e-05,
+          "worst_run_mean_abs": 3.52212404042476e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "ce6b7bf068556ed6",
+            "fece2caac0976059",
+            "f67b95ca05d26854",
+            "4d08473ecc577067",
+            "12b4757505c93d1a",
+            "e4fc9c74c9d5c4ab",
+            "48f2430181f41956"
+          ],
+          "max_pairwise_abs": 4.1961669921875e-05,
+          "max_pairwise_relative_symmetric": 0.02752551608864451,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.593822333,
+          "model_compile": 0.49001675,
+          "pipeline": 0.065492083,
+          "total_excluding_warmup": 1.149331166,
+          "warmup": 3.207645083
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 7298.73435978909,
+          "rows_per_wall_s": 7296.594729475099
+        },
+        "timing_s": {
+          "api_total_samples": [
+            1.12269025,
+            1.253752709,
+            1.389530917,
+            1.154888041,
+            1.097697833,
+            1.099763542,
+            1.093036042
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            3.7458e-05,
+            4.3167e-05,
+            4.1125e-05,
+            3.4792e-05,
+            3.2583e-05,
+            2.6334e-05,
+            3.325e-05
+          ],
+          "gpu": {
+            "median": 1.122386374976486,
+            "p10": 1.094944375101477,
+            "p90": 1.3057500999420881,
+            "samples": [
+              1.122386374976486,
+              1.253394499886781,
+              1.3842835000250489,
+              1.1545015000738204,
+              1.0974406250752509,
+              1.0995231249835342,
+              1.091200000140816
+            ]
+          },
+          "upload_samples": [
+            2.3667e-05,
+            3.4542e-05,
+            4.0625e-05,
+            4.05e-05,
+            2.7708e-05,
+            2.1125e-05,
+            2.3541e-05
+          ],
+          "wall": {
+            "median": 1.1227155,
+            "p10": 1.0958532168,
+            "p90": 1.3080810918,
+            "samples": [
+              1.1227155,
+              1.253769125,
+              1.389549042,
+              1.154919958,
+              1.097717334,
+              1.099789042,
+              1.093057041
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 1,
+      "sequence": 4,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 2.384185791015625e-05,
+          "first_run_max_relative": 0.006927258766609157,
+          "first_run_max_row_group_sum_abs": 2.376968041062355e-05,
+          "first_run_mean_abs": 3.5434351670148185e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 2.6226043701171875e-05,
+          "worst_run_max_relative": 0.010305029718438163,
+          "worst_run_max_row_group_sum_abs": 2.682674676179886e-05,
+          "worst_run_mean_abs": 3.55148593884486e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "571ccb5cec38529b",
+            "91191fb7426318d8",
+            "87da302f0356606d",
+            "1fc509ad2cf6d03e",
+            "c05fa7514897f665",
+            "b62809084fe5e412",
+            "9f99a288ea7e0d74"
+          ],
+          "max_pairwise_abs": 2.0503997802734375e-05,
+          "max_pairwise_relative_symmetric": 0.01290845830226317,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.586002458,
+          "model_compile": 0.50038625,
+          "pipeline": 0.096647208,
+          "total_excluding_warmup": 1.1830359160000001,
+          "warmup": 2.933452583
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 7747.62893101551,
+          "rows_per_wall_s": 7744.983126435813
+        },
+        "timing_s": {
+          "api_total_samples": [
+            1.077131625,
+            1.060144292,
+            1.049195083,
+            1.05769,
+            1.068913666,
+            1.056748917,
+            1.053020417
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            2.5125e-05,
+            3.1041e-05,
+            3.6917e-05,
+            2.8667e-05,
+            3.4333e-05,
+            2.7583e-05,
+            4.2917e-05
+          ],
+          "gpu": {
+            "median": 1.0573557501193136,
+            "p10": 1.051167800044641,
+            "p90": 1.0704421916976572,
+            "samples": [
+              1.0731745418161154,
+              1.0598372500389814,
+              1.0488698750268668,
+              1.0573557501193136,
+              1.0686206249520183,
+              1.0564904999919236,
+              1.0526997500564903
+            ]
+          },
+          "upload_samples": [
+            2.3917e-05,
+            2.5666e-05,
+            2.3375e-05,
+            3.325e-05,
+            2.7333e-05,
+            2.0375e-05,
+            4.2667e-05
+          ],
+          "wall": {
+            "median": 1.057716959,
+            "p10": 1.05151635,
+            "p90": 1.0722259332000001,
+            "samples": [
+              1.077151833,
+              1.060162542,
+              1.049224125,
+              1.057716959,
+              1.068942,
+              1.056776917,
+              1.0530445
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 2,
+      "sequence": 5,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 6.008148193359375e-05,
+          "first_run_max_relative": 0.008301554998979555,
+          "first_run_max_row_group_sum_abs": 5.6040938943624496e-05,
+          "first_run_mean_abs": 6.911384081370277e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 6.818771362304688e-05,
+          "worst_run_max_relative": 0.015732339875285106,
+          "worst_run_max_row_group_sum_abs": 6.590312113985419e-05,
+          "worst_run_mean_abs": 7.081172527250627e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "fcec0cb55ca72a52",
+            "d57a95b3c99ea35f",
+            "c1513fcf92b1e31f",
+            "2f67271bb8e9c291",
+            "362dabacf576a557",
+            "67315b4b07ea276a",
+            "d76d6621005db88e"
+          ],
+          "max_pairwise_abs": 5.3882598876953125e-05,
+          "max_pairwise_relative_symmetric": 0.027777673494711053,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.463892791,
+          "model_compile": 0.539238042,
+          "pipeline": 0.06233175,
+          "total_excluding_warmup": 1.065462583,
+          "warmup": 1.346328584
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 13175.869998789427,
+          "rows_per_wall_s": 13165.769241045715
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.670531167,
+            0.642059166,
+            0.627724167,
+            0.614706917,
+            0.613067417,
+            0.618045458,
+            0.622175542
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            2.6792e-05,
+            3e-05,
+            3.0166e-05,
+            2.6459e-05,
+            4.0583e-05,
+            4.6125e-05,
+            6.9416e-05
+          ],
+          "gpu": {
+            "median": 0.621742625022307,
+            "p10": 0.6137492000125349,
+            "p90": 0.6531880583148449,
+            "samples": [
+              0.6702463333494961,
+              0.6418158749584109,
+              0.627213625004515,
+              0.6144759999588132,
+              0.6126590000931174,
+              0.6176948749925941,
+              0.621742625022307
+            ]
+          },
+          "upload_samples": [
+            2.7417e-05,
+            2.6791e-05,
+            2.5542e-05,
+            2.1791e-05,
+            3.6083e-05,
+            4.4208e-05,
+            4.7083e-05
+          ],
+          "wall": {
+            "median": 0.622219625,
+            "p10": 0.6140830498,
+            "p90": 0.6534722582,
+            "samples": [
+              0.670557959,
+              0.642081791,
+              0.627750583,
+              0.614738833,
+              0.613099375,
+              0.618090292,
+              0.622219625
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 1,
+      "sequence": 6,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 5.4836273193359375e-05,
+          "first_run_max_relative": 0.0061320215264790865,
+          "first_run_max_row_group_sum_abs": 5.947495810687542e-05,
+          "first_run_mean_abs": 7.002126282423164e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 6.818771362304688e-05,
+          "worst_run_max_relative": 0.011816212008852744,
+          "worst_run_max_row_group_sum_abs": 7.262942381203175e-05,
+          "worst_run_mean_abs": 7.091824934113208e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "eacc156c82d228db",
+            "aa800b433998d8db",
+            "4ec297ca6b4113a0",
+            "eade915e6b7cc84a",
+            "bff7bc203866649e",
+            "e001949c40fac67d",
+            "b994847df8f960ca"
+          ],
+          "max_pairwise_abs": 8.58306884765625e-05,
+          "max_pairwise_relative_symmetric": 0.015492189301060097,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.627289959,
+          "model_compile": 0.518237208,
+          "pipeline": 0.125145584,
+          "total_excluding_warmup": 1.2706727509999998,
+          "warmup": 1.494508042
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 12871.977484547584,
+          "rows_per_wall_s": 12865.633142966566
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.6652155,
+            0.642491875,
+            0.636708375,
+            0.635715875,
+            0.630722209,
+            0.626887083,
+            0.637079333
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            6.6917e-05,
+            3.8e-05,
+            3.0375e-05,
+            3.7958e-05,
+            3.2375e-05,
+            2.9208e-05,
+            4.55e-05
+          ],
+          "gpu": {
+            "median": 0.6364212499465793,
+            "p10": 0.6289062000345439,
+            "p90": 0.6509012166410685,
+            "samples": [
+              0.663936416618526,
+              0.6422110833227634,
+              0.6364212499465793,
+              0.6330615417100489,
+              0.6304353333543986,
+              0.6266125000547618,
+              0.6367448749952018
+            ]
+          },
+          "upload_samples": [
+            3.825e-05,
+            2.5e-05,
+            3.3792e-05,
+            4.0167e-05,
+            3.3333e-05,
+            2.5042e-05,
+            4.6667e-05
+          ],
+          "wall": {
+            "median": 0.636735084,
+            "p10": 0.6292096666,
+            "p90": 0.6516150162,
+            "samples": [
+              0.665249166,
+              0.642525583,
+              0.636735084,
+              0.6357405,
+              0.630747583,
+              0.626902792,
+              0.637106709
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 0,
+      "sequence": 7,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 3.4332275390625e-05,
+          "first_run_max_relative": 0.007514535469389593,
+          "first_run_max_row_group_sum_abs": 3.361015114933252e-05,
+          "first_run_mean_abs": 3.439596306248349e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 3.528594970703125e-05,
+          "worst_run_max_relative": 0.0104961372926482,
+          "worst_run_max_row_group_sum_abs": 3.361015114933252e-05,
+          "worst_run_mean_abs": 3.4510253230304664e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "371831ee53dce6e0",
+            "14164d6a2361f69a",
+            "207756e37e41ed3d",
+            "af70e047e133ab92",
+            "410b1fde2c8bcc67",
+            "21798be630994d0a",
+            "f0e60b5cc666210c"
+          ],
+          "max_pairwise_abs": 3.910064697265625e-05,
+          "max_pairwise_relative_symmetric": 0.013263388609630056,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.622213708,
+          "model_compile": 0.547674583,
+          "pipeline": 0.130842667,
+          "total_excluding_warmup": 1.300730958,
+          "warmup": 3.891072
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 6167.747949792161,
+          "rows_per_wall_s": 6142.315852236686
+        },
+        "timing_s": {
+          "api_total_samples": [
+            1.565229833,
+            1.482339625,
+            1.406249042,
+            1.333670834,
+            1.284318791,
+            1.190390042,
+            1.166868917
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            3.35e-05,
+            3.1625e-05,
+            4.075e-05,
+            3.5167e-05,
+            4.1041e-05,
+            5.5958e-05,
+            7.3208e-05
+          ],
+          "gpu": {
+            "median": 1.3281995416618884,
+            "p10": 1.1785646081902086,
+            "p90": 1.5103234749287366,
+            "samples": [
+              1.5632011250127107,
+              1.4750717082060874,
+              1.405867125140503,
+              1.3281995416618884,
+              1.2840009999927133,
+              1.190004374831915,
+              1.1614049582276493
+            ]
+          },
+          "upload_samples": [
+            2.2167e-05,
+            2.8708e-05,
+            5.2125e-05,
+            3.4125e-05,
+            3.3167e-05,
+            6.0708e-05,
+            6.3166e-05
+          ],
+          "wall": {
+            "median": 1.333698917,
+            "p10": 1.1810056828,
+            "p90": 1.5155188084,
+            "samples": [
+              1.565243458,
+              1.482369042,
+              1.406265,
+              1.333698917,
+              1.284350167,
+              1.190410666,
+              1.166898208
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 2,
+      "sequence": 8,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 2.86102294921875e-05,
+          "first_run_max_relative": 0.005795754987047985,
+          "first_run_max_row_group_sum_abs": 2.535840030759573e-05,
+          "first_run_mean_abs": 3.5406151919887575e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 3.147125244140625e-05,
+          "worst_run_max_relative": 0.01311525466007879,
+          "worst_run_max_row_group_sum_abs": 2.7667265385389328e-05,
+          "worst_run_mean_abs": 3.5406151919887575e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "0040b8ae50836812",
+            "f40b0934fcadc5e4",
+            "ef2eb7e6d4ad3be0",
+            "425f7aaccec168ad",
+            "f4f2f8e295d4470b",
+            "b3f4fe97421e5c92",
+            "97899b73aa264354"
+          ],
+          "max_pairwise_abs": 2.5272369384765625e-05,
+          "max_pairwise_relative_symmetric": 0.02015372047026176,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.821680875,
+          "model_compile": 0.69778075,
+          "pipeline": 0.115814541,
+          "total_excluding_warmup": 1.635276166,
+          "warmup": 2.744851667
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 8716.801578067678,
+          "rows_per_wall_s": 8703.033419350862
+        },
+        "timing_s": {
+          "api_total_samples": [
+            1.051733458,
+            1.01622525,
+            0.941217458,
+            0.945675375,
+            0.914226833,
+            0.852486167,
+            0.833826667
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            3.2334e-05,
+            3.6708e-05,
+            3.6875e-05,
+            3.575e-05,
+            5.5e-05,
+            5.0791e-05,
+            5.2084e-05
+          ],
+          "gpu": {
+            "median": 0.9397942498326302,
+            "p10": 0.8430804833304137,
+            "p90": 1.0279806083068252,
+            "samples": [
+              1.0487289582379162,
+              1.0141483750194311,
+              0.9397942498326302,
+              0.945191333303228,
+              0.9134573333431035,
+              0.8520592499990016,
+              0.8296123333275318
+            ]
+          },
+          "upload_samples": [
+            2.4209e-05,
+            3.35e-05,
+            0.000501584,
+            3.7542e-05,
+            8.7542e-05,
+            5.6583e-05,
+            3.7625e-05
+          ],
+          "wall": {
+            "median": 0.941281,
+            "p10": 0.8450760836,
+            "p90": 1.0304642672,
+            "samples": [
+              1.051766417,
+              1.016262834,
+              0.941281,
+              0.945709666,
+              0.914857375,
+              0.8525365,
+              0.833885459
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 1,
+      "sequence": 9,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 6.771087646484375e-05,
+          "first_run_max_relative": 0.010209006973127543,
+          "first_run_max_row_group_sum_abs": 6.424507591873407e-05,
+          "first_run_mean_abs": 7.107757779774347e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 6.771087646484375e-05,
+          "worst_run_max_relative": 0.011562121926544933,
+          "worst_run_max_row_group_sum_abs": 6.530387327075005e-05,
+          "worst_run_mean_abs": 7.120513449598693e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "1ed780ee89801714",
+            "5ce2f71d0d6756a7",
+            "daaad7d740029fb6",
+            "d577cda082d1f0d1",
+            "291d3793dfd753f4",
+            "76c8b160e21218e0",
+            "1c150593bd8c1942"
+          ],
+          "max_pairwise_abs": 3.814697265625e-05,
+          "max_pairwise_relative_symmetric": 0.010058272437163396,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 1.006855417,
+          "model_compile": 0.72573525,
+          "pipeline": 0.143320417,
+          "total_excluding_warmup": 1.875911084,
+          "warmup": 0.76206
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 18634.51348179552,
+          "rows_per_wall_s": 18268.049408151768
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.449136666,
+            0.49988875,
+            0.462914375,
+            0.447445875,
+            0.440696333,
+            0.4343665,
+            0.442422917
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            5.4958e-05,
+            4.7958e-05,
+            4.3417e-05,
+            5.575e-05,
+            4.3167e-05,
+            5.8125e-05,
+            6.3583e-05
+          ],
+          "gpu": {
+            "median": 0.4396143751218915,
+            "p10": 0.4323817749042064,
+            "p90": 0.4740642584860325,
+            "samples": [
+              0.4472399167716503,
+              0.49466108344495296,
+              0.46033304184675217,
+              0.4376930417492986,
+              0.4396143751218915,
+              0.43383137485943735,
+              0.43020737497135997
+            ]
+          },
+          "upload_samples": [
+            4.4375e-05,
+            5.4917e-05,
+            3.7208e-05,
+            6.2833e-05,
+            3.7125e-05,
+            5.6666e-05,
+            5.0875e-05
+          ],
+          "wall": {
+            "median": 0.448433208,
+            "p10": 0.4382218334,
+            "p90": 0.4777661086,
+            "samples": [
+              0.449163542,
+              0.499913458,
+              0.463001209,
+              0.448433208,
+              0.440756083,
+              0.434420459,
+              0.442497417
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 1,
+      "sequence": 10,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 5.91278076171875e-05,
+          "first_run_max_relative": 0.010777682746265782,
+          "first_run_max_row_group_sum_abs": 6.515858694911003e-05,
+          "first_run_mean_abs": 7.0629427777258e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 7.200241088867188e-05,
+          "worst_run_max_relative": 0.014185673080646666,
+          "worst_run_max_row_group_sum_abs": 6.89096050336957e-05,
+          "worst_run_mean_abs": 7.126851728585557e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "10ec749a54414291",
+            "3743f851da742936",
+            "de4872224cebedbb",
+            "692a965713e8386a",
+            "4d9049ba59d0a111",
+            "773002babe5e9fe8",
+            "4065dba751e5eb57"
+          ],
+          "max_pairwise_abs": 4.863739013671875e-05,
+          "max_pairwise_relative_symmetric": 0.02757639094852493,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 1.076428541,
+          "model_compile": 0.744177167,
+          "pipeline": 0.122009417,
+          "total_excluding_warmup": 1.942615125,
+          "warmup": 0.781985458
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 17518.666516525424,
+          "rows_per_wall_s": 17420.497846228274
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.473864667,
+            0.522785375,
+            0.492002875,
+            0.470156208,
+            0.463019042,
+            0.453538,
+            0.444016542
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            3.0209e-05,
+            3.1333e-05,
+            5.8041e-05,
+            7.9667e-05,
+            0.000120542,
+            9.0542e-05,
+            0.000105417
+          ],
+          "gpu": {
+            "median": 0.46761549985967577,
+            "p10": 0.4409801748581231,
+            "p90": 0.5000444250181317,
+            "samples": [
+              0.47190662496723235,
+              0.5199186250101775,
+              0.4867949583567679,
+              0.46761549985967577,
+              0.4572716667316854,
+              0.44164662482216954,
+              0.43998049991205335
+            ]
+          },
+          "upload_samples": [
+            3.3333e-05,
+            2.35e-05,
+            5.8583e-05,
+            7.3833e-05,
+            0.000131125,
+            9.25e-05,
+            9.7084e-05
+          ],
+          "wall": {
+            "median": 0.470250625,
+            "p10": 0.4498010832,
+            "p90": 0.5044314088,
+            "samples": [
+              0.474077084,
+              0.522818584,
+              0.492173292,
+              0.470250625,
+              0.463091792,
+              0.4536375,
+              0.444046458
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 2,
+      "sequence": 11,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 4.00543212890625e-05,
+          "first_run_max_relative": 0.004468688530323561,
+          "first_run_max_row_group_sum_abs": 2.9940507374703884e-05,
+          "first_run_mean_abs": 3.5113092017580597e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 4.00543212890625e-05,
+          "worst_run_max_relative": 0.02343824689887697,
+          "worst_run_max_row_group_sum_abs": 3.7075020372867584e-05,
+          "worst_run_mean_abs": 3.5428193799693984e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "6ef1e0193486f8f6",
+            "8882165d7f5d69a1",
+            "a599d14b465eb362",
+            "6e3a0af9ae576845",
+            "dffa0327c2459569",
+            "85c62c9635a2d194",
+            "9bd762d5f92ea091"
+          ],
+          "max_pairwise_abs": 3.337860107421875e-05,
+          "max_pairwise_relative_symmetric": 0.03729292075149715,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 1.166897458,
+          "model_compile": 0.732648041,
+          "pipeline": 0.13789325,
+          "total_excluding_warmup": 2.037438749,
+          "warmup": 2.0439325
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 9633.709515708066,
+          "rows_per_wall_s": 9626.611383343869
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.858282666,
+            0.824987,
+            0.80406975,
+            0.851119,
+            0.85094625,
+            0.881290333,
+            0.81638325
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            3.9459e-05,
+            3.2584e-05,
+            3.45e-05,
+            8.5583e-05,
+            3.7083e-05,
+            3.7333e-05,
+            0.005078708
+          ],
+          "gpu": {
+            "median": 0.8503474167082459,
+            "p10": 0.802264391630888,
+            "p90": 0.8615976999048144,
+            "samples": [
+              0.8543751665856689,
+              0.8146660418715328,
+              0.8007317916490138,
+              0.8505325000733137,
+              0.8503474167082459,
+              0.8724314998835325,
+              0.8032861249521375
+            ]
+          },
+          "upload_samples": [
+            2.7291e-05,
+            2.8584e-05,
+            0.000188833,
+            0.000102834,
+            3.7e-05,
+            2.7416e-05,
+            0.000806875
+          ],
+          "wall": {
+            "median": 0.850974416,
+            "p10": 0.811530492,
+            "p90": 0.8689140498000001,
+            "samples": [
+              0.860614583,
+              0.82502225,
+              0.804107292,
+              0.851170375,
+              0.850974416,
+              0.88136325,
+              0.816479292
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 2,
+      "sequence": 12,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 6.151199340820312e-05,
+          "first_run_max_relative": 0.010845951692317612,
+          "first_run_max_row_group_sum_abs": 5.978601984679699e-05,
+          "first_run_mean_abs": 7.135264656386544e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 6.628036499023438e-05,
+          "worst_run_max_relative": 0.011151314538437873,
+          "worst_run_max_row_group_sum_abs": 6.643135566264391e-05,
+          "worst_run_mean_abs": 7.135264656386544e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "c7efa73a0f694f80",
+            "0545c9b760d1cc2a",
+            "bc2d53d24fadd8d3",
+            "906c3b548236ef73",
+            "55a158f8b5af8512",
+            "eecdb0af13a2c4fd",
+            "e4219a6a17ba40c8"
+          ],
+          "max_pairwise_abs": 3.0040740966796875e-05,
+          "max_pairwise_relative_symmetric": 0.016006367786758346,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 1.207529583,
+          "model_compile": 0.728318959,
+          "pipeline": 0.1165445,
+          "total_excluding_warmup": 2.052393042,
+          "warmup": 0.776405458
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 17919.525648134415,
+          "rows_per_wall_s": 17774.00577734598
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.450345375,
+            0.518312291,
+            0.47718125,
+            0.464194292,
+            0.460154667,
+            0.455791334,
+            0.439257709
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            3.9333e-05,
+            0.002775375,
+            0.000163958,
+            4.4e-05,
+            5.3708e-05,
+            5.125e-05,
+            4.075e-05
+          ],
+          "gpu": {
+            "median": 0.4571549582760781,
+            "p10": 0.4450858501251787,
+            "p90": 0.48949180003255605,
+            "samples": [
+              0.4498787501361221,
+              0.5107501249294728,
+              0.47531958343461156,
+              0.4624284999445081,
+              0.4571549582760781,
+              0.45076958322897553,
+              0.4378965001087636
+            ]
+          },
+          "upload_samples": [
+            3.9542e-05,
+            0.002246541,
+            0.000437584,
+            3.9958e-05,
+            5.625e-05,
+            5.5583e-05,
+            3.2708e-05
+          ],
+          "wall": {
+            "median": 0.460897791,
+            "p10": 0.4459842752,
+            "p90": 0.4936626422,
+            "samples": [
+              0.450435292,
+              0.518346542,
+              0.477206709,
+              0.464219791,
+              0.460897791,
+              0.455819458,
+              0.43930775
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 2,
+      "sequence": 13,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 6.198883056640625e-05,
+          "first_run_max_relative": 0.010827761798282154,
+          "first_run_max_row_group_sum_abs": 5.83830988034606e-05,
+          "first_run_mean_abs": 7.082511081261849e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 6.4849853515625e-05,
+          "worst_run_max_relative": 0.013266117093735375,
+          "worst_run_max_row_group_sum_abs": 6.379047408699989e-05,
+          "worst_run_mean_abs": 7.13193651000626e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "33584e454f99d85e",
+            "4ce2f413db9eb9ed",
+            "42bdeda91bdea935",
+            "c71902cc8472e51c",
+            "370e2b0a488761fb",
+            "5d0f13b5488b98a7",
+            "6fa84bff0584e66b"
+          ],
+          "max_pairwise_abs": 4.8160552978515625e-05,
+          "max_pairwise_relative_symmetric": 0.01321797071796027,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 1.135127833,
+          "model_compile": 0.787608583,
+          "pipeline": 0.131987417,
+          "total_excluding_warmup": 2.054723833,
+          "warmup": 0.788398
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 16663.396556483098,
+          "rows_per_wall_s": 16629.91206408221
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.530754166,
+            0.5639455,
+            0.50146525,
+            0.476156709,
+            0.492574583,
+            0.485466,
+            0.441954
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            2.8625e-05,
+            0.0001055,
+            0.000108875,
+            0.000198958,
+            9.5917e-05,
+            4.7416e-05,
+            0.000112709
+          ],
+          "gpu": {
+            "median": 0.4916164583992213,
+            "p10": 0.45468859998509287,
+            "p90": 0.5405212750658394,
+            "samples": [
+              0.5275969584472477,
+              0.5599077499937266,
+              0.4966222916264087,
+              0.4716358333826065,
+              0.4916164583992213,
+              0.4732532084453851,
+              0.42926774988882244
+            ]
+          },
+          "upload_samples": [
+            2.0084e-05,
+            9.55e-05,
+            0.000135916,
+            0.000126959,
+            0.000111708,
+            5.2708e-05,
+            0.000112167
+          ],
+          "wall": {
+            "median": 0.492606333,
+            "p10": 0.4644200584,
+            "p90": 0.5440743668,
+            "samples": [
+              0.5307865,
+              0.564006167,
+              0.5022405,
+              0.479357292,
+              0.492606333,
+              0.485534791,
+              0.442014208
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 0,
+      "sequence": 14,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 3.147125244140625e-05,
+          "first_run_max_relative": 0.006926541118446039,
+          "first_run_max_row_group_sum_abs": 3.2918527722358704e-05,
+          "first_run_mean_abs": 3.4382072290991036e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 3.528594970703125e-05,
+          "worst_run_max_relative": 0.009769564712769352,
+          "worst_run_max_row_group_sum_abs": 3.2918527722358704e-05,
+          "worst_run_mean_abs": 3.4905208221986265e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "019ae92f3ddc98fd",
+            "ce62d34012cb0e36",
+            "8b522a49e890de7c",
+            "ef6dd3d0f0a9cd5f",
+            "181fca7154395d1f",
+            "a9ee85e155bdea5d",
+            "2c85fbf92073deab"
+          ],
+          "max_pairwise_abs": 3.337860107421875e-05,
+          "max_pairwise_relative_symmetric": 0.012521240932983346,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.921189292,
+          "model_compile": 0.718503167,
+          "pipeline": 0.100314958,
+          "total_excluding_warmup": 1.7400074170000002,
+          "warmup": 2.2524295
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 9425.685570945327,
+          "rows_per_wall_s": 9388.569685733044
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.947445958,
+            0.898606083,
+            0.893037417,
+            0.872519291,
+            0.851425041,
+            0.822988833,
+            0.8428075
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            2.9833e-05,
+            0.000214333,
+            4.7792e-05,
+            5.3625e-05,
+            3.7417e-05,
+            5.05e-05,
+            0.000108708
+          ],
+          "gpu": {
+            "median": 0.8691144997719675,
+            "p10": 0.8332843834534287,
+            "p90": 0.9146581749431789,
+            "samples": [
+              0.9442374999634922,
+              0.8949386249296367,
+              0.8918679165653884,
+              0.8691144997719675,
+              0.8504735000897199,
+              0.8214285834692419,
+              0.8411882501095533
+            ]
+          },
+          "upload_samples": [
+            2.8916e-05,
+            8.6583e-05,
+            4.8584e-05,
+            6.525e-05,
+            4.1042e-05,
+            5.4417e-05,
+            9.1667e-05
+          ],
+          "wall": {
+            "median": 0.872550375,
+            "p10": 0.8349214586,
+            "p90": 0.918621759,
+            "samples": [
+              0.947471709,
+              0.899388459,
+              0.893072,
+              0.872550375,
+              0.851455041,
+              0.823055459,
+              0.842832125
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 1,
+      "sequence": 15,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 7.104873657226562e-05,
+          "first_run_max_relative": 0.01693319973128382,
+          "first_run_max_row_group_sum_abs": 6.992148701101542e-05,
+          "first_run_mean_abs": 6.647806266334262e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 7.104873657226562e-05,
+          "worst_run_max_relative": 0.01693319973128382,
+          "worst_run_max_row_group_sum_abs": 6.992148701101542e-05,
+          "worst_run_mean_abs": 6.900204475568811e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "476d22ff1ad41663",
+            "89b80e21471b3716",
+            "550c359532360fd6",
+            "bf4abc37a822dd94",
+            "b9e51a8002f5a90d",
+            "47c3ee01b7f3b2f1",
+            "83a9ee17a621155e"
+          ],
+          "max_pairwise_abs": 9.298324584960938e-05,
+          "max_pairwise_relative_symmetric": 0.025012468540808186,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.998910083,
+          "model_compile": 0.767884125,
+          "pipeline": 0.157017583,
+          "total_excluding_warmup": 1.9238117909999999,
+          "warmup": 0.847218417
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 12520.802407389476,
+          "rows_per_wall_s": 12514.623410783372
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.531821667,
+            0.601691791,
+            0.620473416,
+            0.654570917,
+            0.671524209,
+            0.672725791,
+            0.655227125
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            2.3208e-05,
+            2.5e-05,
+            3.2917e-05,
+            2.95e-05,
+            2.6958e-05,
+            3.2875e-05,
+            4.6708e-05
+          ],
+          "gpu": {
+            "median": 0.6542711667716503,
+            "p10": 0.5734950748272241,
+            "p90": 0.6716781083028763,
+            "samples": [
+              0.531576749868691,
+              0.6014406247995794,
+              0.6201963748317212,
+              0.6542711667716503,
+              0.6711566250305623,
+              0.6724603332113475,
+              0.6548924583476037
+            ]
+          },
+          "upload_samples": [
+            1.6292e-05,
+            1.7709e-05,
+            3.0375e-05,
+            2.5625e-05,
+            2.1292e-05,
+            2.6083e-05,
+            4.6e-05
+          ],
+          "wall": {
+            "median": 0.654594208,
+            "p10": 0.5737662250000001,
+            "p90": 0.6720288247999999,
+            "samples": [
+              0.531835375,
+              0.601720125,
+              0.620497584,
+              0.654594208,
+              0.671549958,
+              0.672747125,
+              0.655262667
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 2,
+      "sequence": 16,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 5.8650970458984375e-05,
+          "first_run_max_relative": 0.01881153366412036,
+          "first_run_max_row_group_sum_abs": 6.426428444683552e-05,
+          "first_run_mean_abs": 7.088079236573679e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 6.437301635742188e-05,
+          "worst_run_max_relative": 0.01881153366412036,
+          "worst_run_max_row_group_sum_abs": 7.262034341692924e-05,
+          "worst_run_mean_abs": 7.105571682115947e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "280dfbfa4c9a80f6",
+            "6858c5afd59ad0fe",
+            "2e2a2a48e4a1ed62",
+            "57d56141f830639d",
+            "dab1caf63d2e59bc",
+            "089dd69a175d73dc",
+            "d357984c2793f349"
+          ],
+          "max_pairwise_abs": 5.2928924560546875e-05,
+          "max_pairwise_relative_symmetric": 0.015636260286555625,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.584062,
+          "model_compile": 0.672094208,
+          "pipeline": 0.120824916,
+          "total_excluding_warmup": 1.3769811239999998,
+          "warmup": 1.146511209
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 15005.823868582527,
+          "rows_per_wall_s": 14996.296471274785
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.7365355,
+            0.669793209,
+            0.555977625,
+            0.539939,
+            0.546236125,
+            0.525687,
+            0.515840084
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            3.8708e-05,
+            0.000385208,
+            4.7292e-05,
+            4.5417e-05,
+            3.7667e-05,
+            3.9333e-05,
+            3.1e-05
+          ],
+          "gpu": {
+            "median": 0.5459213750436902,
+            "p10": 0.5201418749056756,
+            "p90": 0.6957580415997654,
+            "samples": [
+              0.7361119166016579,
+              0.6688554582651705,
+              0.54690295830369,
+              0.538295250153169,
+              0.5459213750436902,
+              0.5231827083043754,
+              0.515580624807626
+            ]
+          },
+          "upload_samples": [
+            3.225e-05,
+            6.9291e-05,
+            9.1958e-05,
+            4.4958e-05,
+            3.3833e-05,
+            3.3167e-05,
+            2.7e-05
+          ],
+          "wall": {
+            "median": 0.546268208,
+            "p10": 0.5217791916,
+            "p90": 0.6965216082000001,
+            "samples": [
+              0.736564833,
+              0.669826125,
+              0.556029875,
+              0.539970709,
+              0.546268208,
+              0.525715792,
+              0.515874291
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 1,
+      "sequence": 17,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 5.5789947509765625e-05,
+          "first_run_max_relative": 0.00887130094859274,
+          "first_run_max_row_group_sum_abs": 6.709410808980465e-05,
+          "first_run_mean_abs": 7.053368070602229e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 6.628036499023438e-05,
+          "worst_run_max_relative": 0.011117094800283667,
+          "worst_run_max_row_group_sum_abs": 6.709410808980465e-05,
+          "worst_run_mean_abs": 7.080783519124701e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "90777c12199469c1",
+            "d25141c743875887",
+            "4f9335a4c9f35088",
+            "20e2678724420586",
+            "0166400c47f58cbc",
+            "91543fd4901ac7f5",
+            "cde5dac2e6d0b295"
+          ],
+          "max_pairwise_abs": 7.2479248046875e-05,
+          "max_pairwise_relative_symmetric": 0.018572393400972942,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.637691916,
+          "model_compile": 0.682791667,
+          "pipeline": 0.152618583,
+          "total_excluding_warmup": 1.4731021659999999,
+          "warmup": 0.94204875
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 14238.913603697518,
+          "rows_per_wall_s": 14232.056177706125
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.690834917,
+            0.607679541,
+            0.574052917,
+            0.566740167,
+            0.575585542,
+            0.572734292,
+            0.578427458
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            5.075e-05,
+            5.6875e-05,
+            2.95e-05,
+            3.5208e-05,
+            3.1292e-05,
+            3.1375e-05,
+            4.075e-05
+          ],
+          "gpu": {
+            "median": 0.5753247914835811,
+            "p10": 0.5700699917506427,
+            "p90": 0.6403780251275748,
+            "samples": [
+              0.6903796251863241,
+              0.6070436250884086,
+              0.5735538750886917,
+              0.5664405417628586,
+              0.5753247914835811,
+              0.572489625075832,
+              0.5778261250816286
+            ]
+          },
+          "upload_samples": [
+            4.1167e-05,
+            6.275e-05,
+            3.05e-05,
+            3.8e-05,
+            2.95e-05,
+            2.4125e-05,
+            2.3542e-05
+          ],
+          "wall": {
+            "median": 0.575602,
+            "p10": 0.5703618166,
+            "p90": 0.6409810088,
+            "samples": [
+              0.690873584,
+              0.607719292,
+              0.574081,
+              0.566765416,
+              0.575602,
+              0.572759417,
+              0.578453
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 2,
+      "sequence": 18,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "64",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 2.4318695068359375e-05,
+          "first_run_max_relative": 0.010090332125400892,
+          "first_run_max_row_group_sum_abs": 2.614082768559456e-05,
+          "first_run_mean_abs": 3.424714923781235e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 3.719329833984375e-05,
+          "worst_run_max_relative": 0.013179089819459477,
+          "worst_run_max_row_group_sum_abs": 3.2718293368816376e-05,
+          "worst_run_mean_abs": 3.514388366037381e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 64,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "f64be081aeaff78c",
+            "abd9dab0402baf86",
+            "ca596e8cde115be5",
+            "54c70cc23b723501",
+            "05e122c597a11cb6",
+            "4c6df83640ac24e7",
+            "0af40de71161050e"
+          ],
+          "max_pairwise_abs": 3.24249267578125e-05,
+          "max_pairwise_relative_symmetric": 0.017757145087671233,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.573247833,
+          "model_compile": 0.685859209,
+          "pipeline": 0.126034708,
+          "total_excluding_warmup": 1.38514175,
+          "warmup": 2.794892208
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 7368.869629301308,
+          "rows_per_wall_s": 7365.084245680671
+        },
+        "timing_s": {
+          "api_total_samples": [
+            1.09607725,
+            0.989055458,
+            1.01452575,
+            1.11224525,
+            1.132199708,
+            1.157793292,
+            1.184192042
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            5.075e-05,
+            3.6125e-05,
+            3.1042e-05,
+            3.5208e-05,
+            2.9417e-05,
+            3.3833e-05,
+            3.375e-05
+          ],
+          "gpu": {
+            "median": 1.1117037499789149,
+            "p10": 1.0040599082130939,
+            "p90": 1.1628535750322044,
+            "samples": [
+              1.0938451664987952,
+              0.9887723331339657,
+              1.0142516249325126,
+              1.1117037499789149,
+              1.1298689583782107,
+              1.148826458491385,
+              1.1838942498434335
+            ]
+          },
+          "upload_samples": [
+            3.3e-05,
+            3.4667e-05,
+            2.8125e-05,
+            3.5542e-05,
+            4.25e-05,
+            3.9708e-05,
+            3.5917e-05
+          ],
+          "wall": {
+            "median": 1.112275125,
+            "p10": 1.0043664086,
+            "p90": 1.1683785584000002,
+            "samples": [
+              1.096105917,
+              0.989079833,
+              1.014557459,
+              1.112275125,
+              1.132218833,
+              1.157817708,
+              1.184219834
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 0,
+      "sequence": 19,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 6.866455078125e-05,
+          "first_run_max_relative": 0.013162548384570982,
+          "first_run_max_row_group_sum_abs": 6.501906318590045e-05,
+          "first_run_mean_abs": 6.849048333660803e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 6.866455078125e-05,
+          "worst_run_max_relative": 0.023258508008439094,
+          "worst_run_max_row_group_sum_abs": 6.501906318590045e-05,
+          "worst_run_mean_abs": 6.864592040820871e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "54edd9776943bdcd",
+            "259da53ffbff8807",
+            "b948be11323adab6",
+            "64f4a0ec68bfd5ce",
+            "0297b1e9bede1dcf",
+            "94d881473950eca4",
+            "e5f9088352da06ee"
+          ],
+          "max_pairwise_abs": 0.0001010894775390625,
+          "max_pairwise_relative_symmetric": 0.03245736479584593,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.637515042,
+          "model_compile": 0.847634083,
+          "pipeline": 0.097666416,
+          "total_excluding_warmup": 1.582815541,
+          "warmup": 1.181616542
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 13310.839879415658,
+          "rows_per_wall_s": 13302.16631867748
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.812426292,
+            0.71987575,
+            0.659771833,
+            0.615812792,
+            0.589449084,
+            0.604344208,
+            0.600858417
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            5.7292e-05,
+            4.9875e-05,
+            0.000156583,
+            4.3875e-05,
+            3.475e-05,
+            2.9166e-05,
+            4.0416e-05
+          ],
+          "gpu": {
+            "median": 0.6154382498934865,
+            "p10": 0.5959893581923097,
+            "p90": 0.7563922916539013,
+            "samples": [
+              0.8118610417004675,
+              0.7194131249561906,
+              0.6591252498328686,
+              0.6154382498934865,
+              0.5891673332080245,
+              0.6040934165939689,
+              0.6005373748484999
+            ]
+          },
+          "upload_samples": [
+            4.5709e-05,
+            9.4e-05,
+            9.0916e-05,
+            5.5583e-05,
+            2.9209e-05,
+            2.3625e-05,
+            4.2375e-05
+          ],
+          "wall": {
+            "median": 0.615839541,
+            "p10": 0.5963176334,
+            "p90": 0.7569368666,
+            "samples": [
+              0.812473541,
+              0.719912417,
+              0.659807542,
+              0.615839541,
+              0.589471583,
+              0.604364834,
+              0.600881667
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 0,
+      "sequence": 20,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 2.574920654296875e-05,
+          "first_run_max_relative": 0.007480593922082335,
+          "first_run_max_row_group_sum_abs": 2.5038840249180794e-05,
+          "first_run_mean_abs": 3.531638462943832e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 2.574920654296875e-05,
+          "worst_run_max_relative": 0.009403038347954862,
+          "worst_run_max_row_group_sum_abs": 2.8520356863737106e-05,
+          "worst_run_mean_abs": 3.5437211036597725e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "5d8120bea7ea0229",
+            "f194476f37b6ee9a",
+            "67c3a817509926a8",
+            "77cbbae2fbf56aaa",
+            "9193ad7128133aa1",
+            "cd73c58d12bfc021",
+            "365fec729d684539"
+          ],
+          "max_pairwise_abs": 2.3365020751953125e-05,
+          "max_pairwise_relative_symmetric": 0.014953343452361878,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.602245458,
+          "model_compile": 0.676578916,
+          "pipeline": 0.146513541,
+          "total_excluding_warmup": 1.425337915,
+          "warmup": 2.805803084
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 7388.362014507651,
+          "rows_per_wall_s": 7384.290049836458
+        },
+        "timing_s": {
+          "api_total_samples": [
+            1.04068525,
+            1.037759584,
+            1.079933458,
+            1.111758083,
+            1.136030166,
+            1.116057292,
+            1.109342542
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            3.1375e-05,
+            4.2625e-05,
+            3.4125e-05,
+            2.8333e-05,
+            3.1583e-05,
+            2.8542e-05,
+            3.2e-05
+          ],
+          "gpu": {
+            "median": 1.1087707916740328,
+            "p10": 1.03721189154312,
+            "p90": 1.1237443250138313,
+            "samples": [
+              1.036872666561976,
+              1.0374380415305495,
+              1.0796231667045504,
+              1.1114502500277013,
+              1.1356977501418442,
+              1.1157753749284893,
+              1.1087707916740328
+            ]
+          },
+          "upload_samples": [
+            2.5958e-05,
+            2.6083e-05,
+            3.2167e-05,
+            2.8e-05,
+            3.0083e-05,
+            2.7959e-05,
+            2.6417e-05
+          ],
+          "wall": {
+            "median": 1.109382208,
+            "p10": 1.039540709,
+            "p90": 1.1241133912,
+            "samples": [
+              1.040711959,
+              1.037783834,
+              1.079956833,
+              1.111784666,
+              1.136144041,
+              1.116092958,
+              1.109382208
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 2,
+      "sequence": 21,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "atomic",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 6.437301635742188e-05,
+          "first_run_max_relative": 0.011498308836949127,
+          "first_run_max_row_group_sum_abs": 6.17898185737431e-05,
+          "first_run_mean_abs": 7.115684813842232e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 6.4849853515625e-05,
+          "worst_run_max_relative": 0.01458761289541144,
+          "worst_run_max_row_group_sum_abs": 7.236259989440441e-05,
+          "worst_run_mean_abs": 7.127222750740864e-07
+        },
+        "configuration": {
+          "accumulation": "atomic",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "0d2eb2943af76c5f",
+            "b12c32677d5414e2",
+            "5fff5c08e942913f",
+            "c1a7148d9b6bb285",
+            "1f669c7e06303ba4",
+            "5a3464827789d5a1",
+            "bc895141cffc1fdf"
+          ],
+          "max_pairwise_abs": 4.0531158447265625e-05,
+          "max_pairwise_relative_symmetric": 0.022438371161115356,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.665603375,
+          "model_compile": 0.667248833,
+          "pipeline": 0.145950667,
+          "total_excluding_warmup": 1.478802875,
+          "warmup": 1.053452125
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 13279.009131554261,
+          "rows_per_wall_s": 13270.883974747943
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.776087042,
+            0.688697208,
+            0.646174542,
+            0.617259833,
+            0.603392084,
+            0.576958792,
+            0.569243959
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            4.2875e-05,
+            3.9333e-05,
+            4.675e-05,
+            4.3875e-05,
+            3.9958e-05,
+            4.325e-05,
+            3.7666e-05
+          ],
+          "gpu": {
+            "median": 0.6169135000091046,
+            "p10": 0.5735291499644518,
+            "p90": 0.7231214667670429,
+            "samples": [
+              0.775741916615516,
+              0.6880411668680608,
+              0.6458195417653769,
+              0.6169135000091046,
+              0.6004208750091493,
+              0.5765789998695254,
+              0.5689543751068413
+            ]
+          },
+          "upload_samples": [
+            5.2541e-05,
+            3.8792e-05,
+            3.2541e-05,
+            4.7291e-05,
+            3.0666e-05,
+            3.35e-05,
+            3.1125e-05
+          ],
+          "wall": {
+            "median": 0.617291208,
+            "p10": 0.5738970918,
+            "p90": 0.7236824662,
+            "samples": [
+              0.776110666,
+              0.688730333,
+              0.646217416,
+              0.617291208,
+              0.603420917,
+              0.576985375,
+              0.569264667
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 0,
+      "sequence": 22,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "1024",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 2.288818359375e-05,
+          "first_run_max_relative": 0.008096094461507164,
+          "first_run_max_row_group_sum_abs": 2.264929935336113e-05,
+          "first_run_mean_abs": 3.411996450695633e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 3.24249267578125e-05,
+          "worst_run_max_relative": 0.013109797691868152,
+          "worst_run_max_row_group_sum_abs": 3.43465362675488e-05,
+          "worst_run_mean_abs": 3.4537493906792685e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 1024,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "2ca603860febe200",
+            "b542de2740f5d23a",
+            "7bbfe5e02155f8d2",
+            "16208c463fb7ed30",
+            "8b2046d19bc8cb11",
+            "32287a26838f358b",
+            "6986301bcad87896"
+          ],
+          "max_pairwise_abs": 3.719329833984375e-05,
+          "max_pairwise_relative_symmetric": 0.015837940736673772,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.584824917,
+          "model_compile": 0.627998542,
+          "pipeline": 0.083110667,
+          "total_excluding_warmup": 1.2959341260000001,
+          "warmup": 2.948553042
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 7061.723234907597,
+          "rows_per_wall_s": 7059.523076321477
+        },
+        "timing_s": {
+          "api_total_samples": [
+            1.221496375,
+            1.191927666,
+            1.174745041,
+            1.160382917,
+            1.156402791,
+            1.141343209,
+            1.153406417
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            3.0208e-05,
+            3.2709e-05,
+            3.4708e-05,
+            3.0083e-05,
+            4.8541e-05,
+            4.3417e-05,
+            4.1875e-05
+          ],
+          "gpu": {
+            "median": 1.1600567917339504,
+            "p10": 1.1466939000878482,
+            "p90": 1.198740074923262,
+            "samples": [
+              1.2094018750358373,
+              1.1916322081815451,
+              1.1727634584531188,
+              1.1600567917339504,
+              1.1558860000222921,
+              1.1410433750133961,
+              1.1504609168041497
+            ]
+          },
+          "upload_samples": [
+            2.8833e-05,
+            2.9875e-05,
+            3.2583e-05,
+            2.9208e-05,
+            3.8792e-05,
+            2.8416e-05,
+            3.6167e-05
+          ],
+          "wall": {
+            "median": 1.160418333,
+            "p10": 1.1486055998,
+            "p90": 1.2037846172,
+            "samples": [
+              1.221527417,
+              1.191956084,
+              1.174770167,
+              1.160418333,
+              1.15642675,
+              1.141365125,
+              1.153432583
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 0,
+      "sequence": 23,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    },
+    {
+      "command": [
+        "/private/tmp/mtshap-phase2-verify-root-v1/phase2_benchmark",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+        "1",
+        "--intercepts",
+        "-1.0382566",
+        "--kernel",
+        "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+        "--warmup",
+        "3",
+        "--iterations",
+        "7",
+        "--rows-per-simdgroup",
+        "256",
+        "--threads-per-threadgroup",
+        "256",
+        "--accumulation",
+        "simdgroup",
+        "--model-storage",
+        "shared",
+        "--deterministic-scratch-mib",
+        "256",
+        "--expected",
+        "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+        "--max-abs-error",
+        "0.001"
+      ],
+      "native": {
+        "accuracy": {
+          "first_run_max_abs": 2.4557113647460938e-05,
+          "first_run_max_relative": 0.0055962742267699145,
+          "first_run_max_row_group_sum_abs": 2.5583431124687195e-05,
+          "first_run_mean_abs": 3.5427988587244386e-07,
+          "max_abs_error_gate": 0.001,
+          "relative_floor": 1e-06,
+          "worst_run_max_abs": 2.7179718017578125e-05,
+          "worst_run_max_relative": 0.013923113328928594,
+          "worst_run_max_row_group_sum_abs": 2.7993344701826572e-05,
+          "worst_run_mean_abs": 3.5427988587244386e-07
+        },
+        "configuration": {
+          "accumulation": "simdgroup",
+          "deterministic_scratch_mib": 256,
+          "iterations": 7,
+          "kernel": "/Users/tunguz/Programming/GPU_Tree_Shap_explorer/metal-treeshap/shaders/treeshap.metal",
+          "kernel_kind": "source",
+          "model_storage": "shared",
+          "rows_per_simdgroup": 256,
+          "threads_per_threadgroup": 256,
+          "warmups": 3
+        },
+        "repeatability": {
+          "hash_algorithm": "fnv1a64-float-bits",
+          "hashes": [
+            "d38cd035f8020a68",
+            "1a8ff5347d3bf3a0",
+            "95604fd4153cc673",
+            "1a5d90e73cdf0882",
+            "47a06e9fee4e8714",
+            "49f2a16bbf67b905",
+            "04c3686fb9212658"
+          ],
+          "max_pairwise_abs": 2.86102294921875e-05,
+          "max_pairwise_relative_symmetric": 0.020575612325046677,
+          "relative_floor": 1e-06,
+          "unique_hashes": 7
+        },
+        "schema": "metal_treeshap.phase2.benchmark.v1",
+        "setup_s": {
+          "load": 0.542370375,
+          "model_compile": 0.678214709,
+          "pipeline": 0.083987917,
+          "total_excluding_warmup": 1.304573001,
+          "warmup": 2.728574458
+        },
+        "status": "ok",
+        "throughput": {
+          "rows_per_gpu_s": 8185.761426478434,
+          "rows_per_wall_s": 8182.9540797659365
+        },
+        "timing_s": {
+          "api_total_samples": [
+            0.986644959,
+            0.908498916,
+            0.935525666,
+            1.001068708,
+            1.0870695,
+            1.126348291,
+            1.143340958
+          ],
+          "deterministic_runtime": {
+            "active_scratch_bytes_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_count_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tile_rows_samples": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "encode_samples": [
+            6.0542e-05,
+            2.6417e-05,
+            2.5208e-05,
+            3.0709e-05,
+            3.1542e-05,
+            4.0417e-05,
+            2.9375e-05
+          ],
+          "gpu": {
+            "median": 1.0007621250115335,
+            "p10": 0.9244766250252724,
+            "p90": 1.1325228249654173,
+            "samples": [
+              0.9862656248733401,
+              0.9082407501991838,
+              0.9353005415759981,
+              1.0007621250115335,
+              1.0867962082847953,
+              1.1260134582407773,
+              1.1422868750523776
+            ]
+          },
+          "upload_samples": [
+            2.4875e-05,
+            2.2416e-05,
+            1.95e-05,
+            3.0208e-05,
+            2.875e-05,
+            4.2666e-05,
+            2.35e-05
+          ],
+          "wall": {
+            "median": 1.001105459,
+            "p10": 0.924739042,
+            "p90": 1.133169534,
+            "samples": [
+              0.986665583,
+              0.908519167,
+              0.935552292,
+              1.001105459,
+              1.087093291,
+              1.126371084,
+              1.143367209
+            ]
+          },
+          "x_zero_copy_samples": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "workload": {
+          "atomic_writes_per_row": 296034,
+          "cols": 12,
+          "deterministic_num_active_cells": 12,
+          "deterministic_num_partials": 296034,
+          "deterministic_scratch_bytes_per_row": 1184136,
+          "expected": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/expected.csv",
+          "groups": 1,
+          "matrix": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/X.csv",
+          "packed_bins": 11618,
+          "paths": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/paths.csv",
+          "raw_path_elements": 521503,
+          "rows": 8192,
+          "simdgroup_writes_per_row": 86383,
+          "source_rows": 8192,
+          "theoretical_write_reduction": 3.42699
+        }
+      },
+      "native_stderr": "",
+      "outer_round": 0,
+      "sequence": 24,
+      "workload_manifest": "/private/tmp/mtshap-phase2-final-workloads-v1/stress/workload.json",
+      "workload_name": "stress500"
+    }
+  ],
+  "schema": "metal_treeshap.phase2.suite.v1",
+  "workloads": [
+    {
+      "cols": 12,
+      "depth": 8,
+      "eta": 0.03,
+      "expected": "expected.csv",
+      "intercepts": [
+        -1.0382566
+      ],
+      "kind": "deterministic_xgboost_stress",
+      "matrix": "X.csv",
+      "missing_rate": 0.03,
+      "model": "model.json",
+      "model_sha256": "7373d237cf01cf32e1ceec1f308c284ba3822e843052636cf95c1a20dcc33bc3",
+      "name": "stress500",
+      "num_groups": 1,
+      "paths": "paths.csv",
+      "raw_path_elements": 521503,
+      "rows": 8192,
+      "schema": "metal_treeshap.phase2.workload.v1",
+      "seed": 20260712,
+      "sha256": {
+        "X.csv": "5cbcd8769d4500ac59c3499fe2b3356c1e9fdc4325e16948ddc50d06711085f3",
+        "expected.csv": "abd3c5bf90493c9252c1e329856c2b2ea16a7b6536409c1b0dfdb84273bb507b",
+        "model.json": "7373d237cf01cf32e1ceec1f308c284ba3822e843052636cf95c1a20dcc33bc3",
+        "paths.csv": "682bef155e54e809000152b45068249286cfd924ec0ae21d231bb50832b5dce1"
+      },
+      "tolerance": 0.001,
+      "train_rows": 4000,
+      "trees": 500,
+      "xgboost_version": "3.1.2"
+    }
+  ]
+}

@@ -189,20 +189,48 @@ static int TestValidateRawLaundering() {
                                 MakeElement(7, 2, 0.8, 1.0f, 2.0f, 20.0f, true)};
     CHECK(!Throws(ok));
   }
-  // MERGED-interval laundering (validation_v3 finding): two individually valid intervals
-  // [0,1) and [2,3) on the same feature intersect to the empty interval [2,1) — raw
-  // checks pass, so the post-dedup layer must reject it.
+  // Empty numeric intersection with at least one non-missing edge is unsatisfiable: NaN
+  // cannot rescue the path after Merge ANDs the missing flags, so post-dedup must reject it.
   CHECK(Throws({MakeElement(8, -1, 1.0, 1.0f),
                 MakeElement(8, 2, 0.5, 1.0f, 0.0f, 1.0f, true),
-                MakeElement(8, 2, 0.5, 1.0f, 2.0f, 3.0f, true)}));
-  // Degenerate touching intervals [0,1) and [1,2) -> [1,1): also empty, also rejected.
+                MakeElement(8, 2, 0.5, 1.0f, 2.0f, 3.0f, false)}));
+  // Degenerate touching intervals are likewise rejected when missing does not follow both.
   CHECK(Throws({MakeElement(9, -1, 1.0, 1.0f),
                 MakeElement(9, 2, 0.5, 1.0f, 0.0f, 1.0f, true),
-                MakeElement(9, 2, 0.5, 1.0f, 1.0f, 2.0f, true)}));
+                MakeElement(9, 2, 0.5, 1.0f, 1.0f, 2.0f, false)}));
+
+  // Real XGBoost trees can contain a missing-only path: both repeated-feature edges route
+  // NaN to the leaf while their numeric intervals are complementary.  The merged [1,1)
+  // interval is empty for finite values but EvaluateSplit(NaN) is true, so this must pass.
+  std::vector<PathElement> missing_only{
+      MakeElement(10, -1, 1.0, -3.0f),
+      MakeElement(10, 0, 2.0 / 3.0, -3.0f,
+                  -std::numeric_limits<float>::infinity(), 1.0f, true),
+      MakeElement(10, 0, 0.5, -3.0f, 1.0f,
+                  std::numeric_limits<float>::infinity(), true)};
+  CHECK(!Throws(missing_only, /*num_cols=*/1));
+  auto missing_only_dd = DeduplicatePaths(std::move(missing_only));
+  CHECK(missing_only_dd.size() == 2);
+  CHECK(missing_only_dd[1].split_condition.feature_lower_bound == 1.0f);
+  CHECK(missing_only_dd[1].split_condition.feature_upper_bound == 1.0f);
+  CHECK(missing_only_dd[1].split_condition.EvaluateSplit(
+      std::numeric_limits<float>::quiet_NaN()));
+  CHECK(!missing_only_dd[1].split_condition.EvaluateSplit(1.0f));
   return 0;
 }
 
 static int TestSegmentsAndLayout() {
+  // Prefix offsets are accumulated in size_t and rejected before uint32 narrowing.
+  CHECK(CheckedBinSegmentsFromCounts({2, 0, 3}) ==
+        std::vector<uint32_t>({0, 2, 2, 5}));
+  try {
+    (void)CheckedBinSegmentsFromCounts(
+        {static_cast<size_t>(std::numeric_limits<uint32_t>::max()), 1});
+    CHECK(false);
+  } catch (const std::overflow_error&) {
+    CHECK(true);
+  }
+
   std::mt19937 rng(7);
   std::uniform_int_distribution<int> depth_dist(1, 12);
   std::vector<PathElement> raw;
