@@ -27,16 +27,18 @@ unusually well-matched: Apple GPUs execute in **32-wide SIMD-groups — exactly 
 unified memory removes GPUTreeShap's discrete PCIe tax. The current API still stages unaligned
 input and copies the shared output into caller storage, but both operations stay in unified memory.
 
-The intended result is a genuinely novel open-source contribution: `pip install metaltreeshap`
-with a measured speed and energy advantage on suitable M-series workloads. Phase 2 now establishes
-the speed advantage on one M4 Max stress workload; packaging, the full dataset/device matrix, and
-energy evidence remain open.
+The intended result is a genuinely novel open-source contribution: `pip install metal-treeshap`
+with a measured speed and, once privileged telemetry is collected, energy advantage on suitable
+M-series workloads. Phase 2 established the speed advantage on one M4 Max; Phase 3 delivered the
+local package and Python API. Hosted publishing, the full dataset/device matrix, and energy
+evidence remain separate release/evaluation work.
 
 ## 2. Goals, non-goals, success criteria
 
 **Goal.** A production-quality, pip-installable library computing exact first-order SHAP values
-(and later interactions / Taylor / interventional variants) for XGBoost, LightGBM and sklearn tree
-ensembles on Apple-Silicon GPUs, numerically validated against the CPU reference implementations.
+for XGBoost on Apple-Silicon GPUs, numerically validated against the CPU reference implementation.
+LightGBM, generic sklearn trees, interactions, Taylor, and interventional variants are later
+extensions, not claims of the v0.1 package.
 
 **Non-goals (initially).** Training acceleration; categorical-split support beyond what interval
 conditions express (XGBoost one-hot/partition categoricals can be added later exactly as the
@@ -52,8 +54,8 @@ SIMD width economics; possible later since MSL code is family-gated, not impossi
    over multithreaded CPU `pred_contribs` on the same machine (M-series Pro/Max) for medium and
    large models at 10K rows — with 5×+ as the kernel-throughput target; document energy via
    `powermetrics`. No acceleration claims before the Metal benchmark path actually runs.
-3. *Usability*: `MetalTreeExplainer(model).shap_values(X)` one-liner; wheels on PyPI; CI on an
-   Apple-Silicon runner.
+3. *Usability*: `MetalTreeExplainer.from_xgboost(model).shap_values(X)`; locally validated ARM64
+   wheels for supported Python versions; hosted PyPI and Apple-Silicon CI as release gates.
 
 ## 3. Feasibility: mapping the CUDA machinery onto Metal
 
@@ -178,7 +180,8 @@ metal-treeshap/
 ├── tests/                         # preprocess unit tests; golden tests vs xgboost pred_contribs
 ├── benchmarks/phase2_*            # hashed workloads, shuffled sweeps, CPU baseline, schema
 ├── benchmarks/results/            # verified machine-readable result summary
-└── python/ (Phase 3)              # nanobind bindings → metaltreeshap wheel
+├── bindings/python_module.cpp     # nanobind native extension
+└── python/metal_treeshap/         # compiled-model API → metal-treeshap wheel
 ```
 
 Data flow: `Booster` → (Python/C++ extractor) raw path elements + per-group intercepts → host
@@ -309,12 +312,13 @@ retained but slower; deterministic mode is bit-stable with bounded scratch. See
 `docs/04-phase2-performance-results.md` and the machine-readable summary under
 `benchmarks/results/`.
 
-**Phase 3 — Python API + packaging (~2 weeks).**
-Extend the existing persistent compiled-model host with batching over large row counts and a
-zero-copy input path; nanobind bindings; `MetalTreeExplainer` with the `shap` package's Explainer
-interface; model parsers for LightGBM and sklearn (reuse `shap`'s `TreeEnsemble` normalization;
-covers exist for all of them); wheels (cibuildwheel, macOS-14 arm64 runner); CI running the
-golden + fixture suites on an Apple-Silicon GitHub runner.
+**Phase 3 — Python API + packaging. COMPLETE locally for v0.1.**
+The nanobind `MetalTreeExplainer` compiles once and explains repeatedly, accepts XGBoost JSON,
+dictionary, Booster, and XGBoost sklearn-wrapper sources, provides `explain`, `shap_values`, and
+callable forms, handles large batches through the native tiled dispatch controls, and uses the
+host's zero-copy input path when alignment permits. CPython 3.10–3.14 ARM64 wheels and an sdist
+build and pass installed-package tests locally. Hosted CI/publishing is a release-operation gate;
+`shap.Explanation` interoperability and LightGBM/generic sklearn extractors are post-v0.1 work.
 
 **Phase 4 — Full benchmark matrix, variants + upstreaming (~2-3 weeks).**
 Extend the Phase-2 reproducible CPU/Metal benchmark foundation to the complete upstream dataset /
@@ -358,8 +362,9 @@ steady-state API speedup. Adding separately measured setup components yields a 6
 but that is not direct model-to-first-answer latency: Metal path extraction is excluded and the
 CPU load component includes the expected file. The steady-state result clears the performance
 target on this case. It does not replace the full matrix above: only one M4 Max and synthetic
-stress/hot workloads were measured, `shap.TreeExplainer` and energy were not, and p10/p90 are
-observed dispersion rather than confidence intervals.
+stress/hot workloads were measured and energy was not; a later Phase-2.1 session added the
+`shap.TreeExplainer` comparison. The reported p10/p90 values are observed dispersion rather than
+confidence intervals.
 
 ## 8. Risks and mitigations
 

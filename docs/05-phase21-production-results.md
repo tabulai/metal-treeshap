@@ -106,12 +106,27 @@ paired measurement session.
 `phase2_run.py` can launch `powermetrics` without ever prompting for a password, record each
 job's UTC interval, and attach per-job CPU/GPU mean power and estimated energy. The separate
 `phase2_power.py` parser also handles NUL-separated plist traces and reports missing coverage.
+The CPU XGBoost and optional SHAP baselines emit aggregate envelopes plus exact per-call UTC
+windows using the same parser contract. `benchmark_mac.py` additionally uses homogeneous
+repeated-call CPU and Metal blocks, idle guards, and one sampler interval of the same workload
+before and after each recorded block; this prevents a boundary sample from mixing engines.
+The software instrumentation is complete and tested with synthetic traces. A real privileged
+trace is still required before making any performance-per-watt claim.
 
 This session had no passwordless `sudo`, so power capture was explicitly recorded as skipped.
 No performance-per-watt claim is made. To capture it on an authorized Mac:
 
 ```bash
 sudo -v
+# Controlled CPU-versus-Metal energy comparison: homogeneous engine blocks,
+# randomized block order, and sampler-interval boundary conditioning.
+python3 benchmarks/benchmark_mac.py \
+  --datasets cal_housing,adult --sizes small,med \
+  --nrows 10000 --niter 5 --warmup 2 --nthread 16 --device both \
+  --output realdata-power.json --power-output realdata-power.plist \
+  --power-sudo
+
+# Kernel-configuration-only power comparison.
 python3 benchmarks/phase2_run.py build/phase2_benchmark WORKLOAD \
   --kernel shaders/treeshap.metal --output suite.json \
   --power-output powermetrics.plist --power-sudo

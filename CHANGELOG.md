@@ -12,12 +12,16 @@ Initial alpha release for Apple Silicon Macs.
 - Metal implementation of first-order TreeSHAP using 32-lane SIMD-group cooperation.
 - Compile-once, explain-many `MetalTreeExplainer` Python API for XGBoost JSON models,
   `Booster` objects, sklearn wrappers, and pre-extracted paths.
+- Familiar `shap_values` compatibility method, bias-only/zero-tree model support, and nullable
+  pandas missing-value conversion without making pandas a required dependency.
 - Atomic throughput mode, SIMD pre-aggregation experiments, and a bit-repeatable
   deterministic mode with a precise Kahan reducer.
 - CPU preprocessing, path packing, frozen model fixtures, analytic and double-precision
   references, and Metal differential tests.
 - Persistent performance harnesses with hashed workloads, blocked/shuffled execution,
   XGBoost and optional `shap.TreeExplainer` baselines, and `powermetrics` integration.
+- Paired real-data CPU/Metal runner with one shared model per cell, randomized call order,
+  provenance hashes, exact power windows, and elementwise correctness gates.
 - Linux portability tests, XGBoost compatibility tests, Apple-GPU tests, macOS ARM64
   wheel builds, and trusted-publishing release automation.
 

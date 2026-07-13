@@ -9,6 +9,7 @@ allocation.  JSON is written atomically so interrupted runs cannot masquerade as
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import hashlib
 import json
 import os
@@ -22,6 +23,11 @@ import xgboost as xgb
 
 
 SCHEMA = "metal_treeshap.phase2.cpu_xgboost.v1"
+
+
+def _utc_now() -> str:
+    """Return the ISO-8601 UTC timestamp contract used by phase2_power.py."""
+    return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
 def _positive_csv(value: str) -> list[int]:
@@ -91,11 +97,22 @@ def main() -> None:
             prediction = booster.predict(dmatrix, pred_contribs=True)
 
         samples = []
+        sample_windows = []
         hashes = []
         for _ in range(args.iterations):
+            started_utc = _utc_now()
             begin = time.perf_counter()
             prediction = booster.predict(dmatrix, pred_contribs=True)
-            samples.append(time.perf_counter() - begin)
+            elapsed_s = time.perf_counter() - begin
+            finished_utc = _utc_now()
+            samples.append(elapsed_s)
+            sample_windows.append(
+                {
+                    "started_utc": started_utc,
+                    "finished_utc": finished_utc,
+                    "elapsed_s": elapsed_s,
+                }
+            )
             hashes.append(_hash_array(prediction))
         assert prediction is not None
 
@@ -112,6 +129,11 @@ def main() -> None:
         median = _quantile(samples, 0.5)
         results.append({
             "rows": rows,
+            # The aggregate interval is the envelope around all timed calls. The
+            # correlator prefers the exact intervals below, excluding gaps between calls.
+            "started_utc": sample_windows[0]["started_utc"],
+            "finished_utc": sample_windows[-1]["finished_utc"],
+            "sample_windows_utc": sample_windows,
             "dmatrix_setup_s": dmatrix_s,
             "timing_s": {
                 "median": median,
@@ -156,6 +178,11 @@ def main() -> None:
             "iterations": args.iterations,
             "setup_excluded": ["model_load", "DMatrix construction"],
             "timed_call": "Booster.predict(DMatrix, pred_contribs=True)",
+            "power_window": (
+                "each result started_utc/finished_utc is an envelope around its "
+                "measured calls; sample_windows_utc records the exact timed calls "
+                "and excludes intervening gaps"
+            ),
         },
         "setup_s": {"load_model_matrix_expected": load_s},
         "results": results,

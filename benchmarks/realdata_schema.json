@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tunguz/metal-treeshap/benchmarks/realdata_schema.json",
+  "title": "MetalTreeShap paired real-data benchmark suite",
+  "type": "object",
+  "required": ["schema", "generated_utc", "cells", "results"],
+  "properties": {
+    "schema": {"const": "metal_treeshap.realdata_suite.v1"},
+    "generated_utc": {"type": "string", "format": "date-time"},
+    "cells": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/cell"}
+    },
+    "results": {
+      "description": "Flattened, non-overlapping timed-call windows for phase2_power.py",
+      "type": "array",
+      "items": {"$ref": "#/$defs/powerJob"}
+    },
+    "power_trace": {"type": "object"},
+    "power_summary": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "window": {
+      "type": "object",
+      "required": ["started_utc", "finished_utc"],
+      "properties": {
+        "started_utc": {"type": "string", "format": "date-time"},
+        "finished_utc": {"type": "string", "format": "date-time"}
+      }
+    },
+    "sample": {
+      "allOf": [
+        {"$ref": "#/$defs/window"},
+        {
+          "type": "object",
+          "required": ["iteration", "order_index", "seconds"],
+          "properties": {
+            "iteration": {"type": "integer", "minimum": 0},
+            "order_index": {"type": "integer", "minimum": 0},
+            "seconds": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      ]
+    },
+    "device": {
+      "type": "object",
+      "required": [
+        "dataset", "size", "device", "rows", "features", "rounds", "depth",
+        "samples", "median_s", "rows_per_s", "max_local_accuracy_error",
+        "local_accuracy", "dataset_sha256", "model_json_sha256",
+        "explain_matrix_sha256", "output_sha256"
+      ],
+      "properties": {
+        "device": {"enum": ["cpu", "metal"]},
+        "samples": {"type": "array", "items": {"$ref": "#/$defs/sample"}},
+        "local_accuracy": {"const": true}
+      },
+      "additionalProperties": true
+    },
+    "powerJob": {
+      "allOf": [
+        {"$ref": "#/$defs/sample"},
+        {
+          "type": "object",
+          "required": ["dataset", "size", "device"],
+          "properties": {"device": {"enum": ["cpu", "metal"]}}
+        }
+      ]
+    },
+    "cell": {
+      "type": "object",
+      "required": [
+        "schema", "started_utc", "finished_utc", "configuration_order",
+        "power_design", "devices", "comparison", "power_jobs"
+      ],
+      "properties": {
+        "schema": {"const": "metal_treeshap.realdata_cell.v1"},
+        "started_utc": {"type": "string", "format": "date-time"},
+        "finished_utc": {"type": "string", "format": "date-time"},
+        "configuration_order": {"const": "seeded_random_within_iteration"},
+        "power_design": {
+          "enum": [
+            "timed_call_windows_only",
+            "homogeneous_repeated_call_blocks_with_idle_guards"
+          ]
+        },
+        "devices": {"type": "array", "items": {"$ref": "#/$defs/device"}},
+        "comparison": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": ["max_abs_attribution_error", "metal_speedup_vs_cpu"]
+            }
+          ]
+        },
+        "power_jobs": {"type": "array", "items": {"$ref": "#/$defs/powerJob"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}

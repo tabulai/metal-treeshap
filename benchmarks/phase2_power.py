@@ -51,6 +51,18 @@ def _job_window(job: dict) -> tuple[dt.datetime, dt.datetime]:
     return start, end
 
 
+def _job_windows(job: dict) -> list[tuple[dt.datetime, dt.datetime]]:
+    """Return exact timed-call windows when available, else the aggregate window."""
+    raw_windows = job.get("sample_windows_utc")
+    if not isinstance(raw_windows, list) or not raw_windows:
+        return [_job_window(job)]
+    windows = [_job_window(window) for window in raw_windows]
+    for previous, current in zip(windows, windows[1:]):
+        if current[0] < previous[1]:
+            raise ValueError("job sample_windows_utc overlap or are out of order")
+    return windows
+
+
 def summarize_jobs(samples: list[dict], jobs: list[dict]) -> list[dict]:
     """Estimate per-job average power and energy from overlapping sample intervals.
 
@@ -81,7 +93,7 @@ def summarize_jobs(samples: list[dict], jobs: list[dict]) -> list[dict]:
 
     summaries: list[dict] = []
     for job in jobs:
-        job_start, job_end = _job_window(job)
+        windows = _job_windows(job)
         metric = {
             "gpu": {"weighted_mw_s": 0.0, "covered_s": 0.0, "samples": 0},
             "cpu": {"weighted_mw_s": 0.0, "covered_s": 0.0, "samples": 0},
@@ -89,9 +101,14 @@ def summarize_jobs(samples: list[dict], jobs: list[dict]) -> list[dict]:
         overlapping = 0
         thermal: set[str] = set()
         for sample in parsed:
-            overlap = (
-                min(job_end, sample["end"]) - max(job_start, sample["start"])
-            ).total_seconds()
+            overlap = sum(
+                max(
+                    0.0,
+                    (min(end, sample["end"]) - max(start, sample["start"]))
+                    .total_seconds(),
+                )
+                for start, end in windows
+            )
             if overlap <= 0:
                 continue
             overlapping += 1
@@ -109,7 +126,9 @@ def summarize_jobs(samples: list[dict], jobs: list[dict]) -> list[dict]:
         summary: dict = {
             "status": "ok" if overlapping else "unavailable",
             "overlapping_samples": overlapping,
-            "job_duration_s": (job_end - job_start).total_seconds(),
+            "job_duration_s": sum((end - start).total_seconds()
+                                  for start, end in windows),
+            "job_window_count": len(windows),
             "thermal_pressure_levels": sorted(thermal),
             "provenance": {
                 "source": "powermetrics plist cpu_power,gpu_power,thermal samplers",
@@ -121,6 +140,17 @@ def summarize_jobs(samples: list[dict], jobs: list[dict]) -> list[dict]:
                 ),
             },
         }
+        identity = {
+            key: job[key]
+            for key in (
+                "sequence", "outer_round", "workload_name", "rows",
+                "dataset", "size", "device", "iteration", "order_index",
+                "block_round", "calls", "power_block", "explained_rows",
+            )
+            if key in job
+        }
+        if identity:
+            summary["job"] = identity
         for name in ("gpu", "cpu"):
             covered = metric[name]["covered_s"]
             if covered:
@@ -128,6 +158,11 @@ def summarize_jobs(samples: list[dict], jobs: list[dict]) -> list[dict]:
                 summary[f"{name}_estimated_energy_j"] = (
                     metric[name]["weighted_mw_s"] / 1000.0
                 )
+                explained_rows = job.get("explained_rows")
+                if isinstance(explained_rows, int) and explained_rows > 0:
+                    summary[f"{name}_estimated_energy_j_per_explained_row"] = (
+                        summary[f"{name}_estimated_energy_j"] / explained_rows
+                    )
                 summary[f"{name}_covered_s"] = covered
                 summary[f"{name}_samples"] = metric[name]["samples"]
             else:

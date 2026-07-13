@@ -10,6 +10,7 @@ loading and explainer construction excluded, matching the persistent Metal bench
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import hashlib
 import importlib.metadata
 import inspect
@@ -22,6 +23,11 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "metal_treeshap.phase2.cpu_shap.v1"
+
+
+def _utc_now() -> str:
+    """Return the ISO-8601 UTC timestamp contract used by phase2_power.py."""
+    return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
 def _positive_csv(value: str) -> list[int]:
@@ -129,6 +135,11 @@ def _base_artifact(args: argparse.Namespace) -> dict:
                 "TreeExplainer construction",
             ],
             "timed_call": "TreeExplainer.shap_values(X, check_additivity=False)",
+            "power_window": (
+                "each result started_utc/finished_utc is an envelope around its "
+                "measured calls; sample_windows_utc records the exact timed calls "
+                "and excludes intervening gaps"
+            ),
         },
         "results": [],
     }
@@ -231,12 +242,23 @@ def main() -> None:
         for _ in range(args.warmup):
             values = method(matrix[:rows], check_additivity=False)
         samples: list[float] = []
+        sample_windows: list[dict[str, str | float]] = []
         hashes: list[str] = []
         normalized = None
         for _ in range(args.iterations):
+            started_utc = _utc_now()
             start = time.perf_counter()
             values = method(matrix[:rows], check_additivity=False)
-            samples.append(time.perf_counter() - start)
+            elapsed_s = time.perf_counter() - start
+            finished_utc = _utc_now()
+            samples.append(elapsed_s)
+            sample_windows.append(
+                {
+                    "started_utc": started_utc,
+                    "finished_utc": finished_utc,
+                    "elapsed_s": elapsed_s,
+                }
+            )
             normalized = normalize_shap_values(values, rows, cols, groups)
             hashes.append(_hash_array(normalized))
         assert normalized is not None
@@ -264,6 +286,9 @@ def main() -> None:
         artifact["results"].append(
             {
                 "rows": rows,
+                "started_utc": sample_windows[0]["started_utc"],
+                "finished_utc": sample_windows[-1]["finished_utc"],
+                "sample_windows_utc": sample_windows,
                 "timing_s": {
                     "median": median,
                     "p10": float(np.quantile(samples_array, 0.1, method="linear")),

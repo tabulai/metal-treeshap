@@ -23,6 +23,8 @@ Start with these documents in `docs/`:
    optional SHAP comparison, and final production defaults.
 6. **[docs/06-v0.1-release-validation.md](docs/06-v0.1-release-validation.md)** — the v0.1
    compatibility, wheel, Metal, and release-automation gates plus remaining external checks.
+7. **[docs/07-local-program-completion.md](docs/07-local-program-completion.md)** — the bounded
+   real-data matrix, final API/benchmark hardening, local completion boundary, and evidence scan.
 
 ## Status (Phase 2.1 production path complete on M4 Max)
 
@@ -113,15 +115,17 @@ resulting `dist/metal_treeshap-*.whl`.
 from metal_treeshap import MetalTreeExplainer
 
 explainer = MetalTreeExplainer.from_xgboost("model.json")
-phis = explainer.explain(X)
+phis = explainer.shap_values(X)
 ```
 
 `from_paths` is also available and requires explicit per-group intercepts. The package targets
 macOS 13+ on ARM64 and runtime-compiles the bundled shader when an offline metallib is absent.
+`shap_values(X)`, `explain(X)`, and calling the explainer directly have the same output contract.
 
 NumPy arrays and pandas `DataFrame` objects are accepted. DataFrame columns are consumed by
 position: pass them in the same feature order used to train the model. `MetalTreeExplainer` does
-not currently reorder columns against XGBoost feature names. The result is a NumPy array.
+not currently reorder columns against XGBoost feature names. Nullable pandas values are converted
+to `NaN` for XGBoost-compatible missing routing. The result is a NumPy array.
 Single-output models return `(rows, features + 1)`; multiclass models return
 `(rows, classes, features + 1)`, and the final entry on each feature axis is the bias term.
 
@@ -141,6 +145,20 @@ python3 benchmarks/phase2_run.py build/phase2_benchmark \
   --rows-per-simdgroup 256,1024 --threads-per-threadgroup 64,256 \
   --accumulations atomic,simdgroup,deterministic --atomic-tiling-sweep --rounds 3
 ```
+
+The upstream-shaped real-data runner trains each model once, compiles both engines once, then
+randomizes paired CPU/Metal calls within each iteration. It records raw samples, exact UTC power
+windows, model/data/output hashes, additivity, and elementwise CPU/Metal error:
+
+```bash
+python3 benchmarks/benchmark_mac.py \
+  --datasets adult,covtype,cal_housing,fashion_mnist \
+  --sizes small,med --nrows 10000 --niter 5 --warmup 2 \
+  --nthread 16 --device both --output realdata.json
+```
+
+The `large` cells are intentionally opt-in: upstream shapes can materialize tens of millions of
+path elements and require multi-hour runs plus several GiB of temporary memory.
 
 ## Repository hygiene
 

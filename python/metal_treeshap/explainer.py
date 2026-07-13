@@ -64,8 +64,6 @@ def _pack_paths(paths: Iterable[Any]) -> tuple[np.ndarray, ...]:
         )
         columns[6].append(_value(element, "zero_fraction"))
         columns[7].append(_value(element, "v"))
-    if not columns[0]:
-        raise ValueError("paths must contain at least one path element")
     dtypes = (np.uint64, np.int64, np.int32, np.float32, np.float32, np.uint8,
               np.float64, np.float32)
     return tuple(np.ascontiguousarray(values, dtype=dtype)
@@ -182,7 +180,15 @@ class MetalTreeExplainer:
 
     def explain(self, X: Any, *, keep_group_axis: bool = False) -> np.ndarray:
         """Return additive feature contributions for a 2-D dense input matrix."""
-        matrix = np.asarray(X, dtype=np.float32, order="C")
+        to_numpy = getattr(X, "to_numpy", None)
+        if callable(to_numpy):
+            # pandas nullable dtypes expose missing values as ``pd.NA`` when coerced via
+            # plain np.asarray.  Request the dense float representation explicitly while
+            # keeping pandas an optional dependency.
+            matrix = to_numpy(dtype=np.float32, na_value=np.nan)
+        else:
+            matrix = X
+        matrix = np.asarray(matrix, dtype=np.float32, order="C")
         if matrix.ndim != 2:
             raise ValueError("X must be a 2-D array")
         if matrix.shape[1] != self.num_features:
@@ -193,6 +199,15 @@ class MetalTreeExplainer:
         if self.num_groups == 1 and not keep_group_axis:
             return output[:, 0, :]
         return output
+
+    def shap_values(self, X: Any, *, keep_group_axis: bool = False) -> np.ndarray:
+        """Return SHAP values using the familiar ``TreeExplainer`` method name.
+
+        This is the same operation and has the same shape contract as :meth:`explain`;
+        it is provided as a compatibility convenience for code that already calls
+        ``shap_values`` on tree explainers.
+        """
+        return self.explain(X, keep_group_axis=keep_group_axis)
 
     __call__ = explain
 

@@ -37,7 +37,12 @@ Source = "https://github.com/tunguz/metal-treeshap"
 
 [project.optional-dependencies]
 xgboost = ["xgboost>=2.0"]
-test = ["pytest>=8", "xgboost>=2.0"]
+test = [
+  "pytest>=8",
+  "xgboost>=2.0",
+  "scikit-learn>=1.3",
+  "jsonschema>=4.20",
+]
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"

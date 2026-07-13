@@ -1,0 +1,135 @@
+{
+  "schema": "metal_treeshap.realdata_summary.v1",
+  "created_utc": "2026-07-13T04:16:00Z",
+  "source_artifact": {
+    "bytes": 97174,
+    "path_at_validation": "/private/tmp/mtshap-realdata-small-med-suite.json",
+    "sha256": "3616849d6595ef011f353cafb5b974dac5acd3c1441245e7e33dc9373545280c",
+    "schema_note": "The run began before power_design and final implementation provenance were added. Its paired timing, hashes, samples, and correctness fields are unchanged; a post-hardening smoke artifact separately passed realdata_schema.json."
+  },
+  "environment": {
+    "machine": "arm64 Apple M4 Max session",
+    "python": "3.13.3",
+    "scikit_learn": "1.9.0",
+    "xgboost": "3.3.0",
+    "xgboost_cpu_threads": 16
+  },
+  "design": {
+    "explain_rows": 10000,
+    "iterations_per_engine_per_cell": 5,
+    "paired_same_model_and_matrix": true,
+    "setup_and_warmup_excluded": true,
+    "timed_samples": 80,
+    "warmups_per_engine_per_cell": 2,
+    "within_iteration_order": "seeded random CPU/Metal order"
+  },
+  "aggregate": {
+    "cells_accelerated": 8,
+    "cells_total": 8,
+    "geometric_mean_speedup": 8.982664695767863,
+    "median_speedup": 9.320458458470647,
+    "speedup_max": 28.83812197949557,
+    "speedup_min": 3.5516105944450738,
+    "max_abs_cpu_metal_attribution_error": 2.682209014892578e-05,
+    "max_cpu_local_accuracy_error": 2.86102294921875e-06,
+    "max_metal_local_accuracy_error": 2.7298927307128906e-05
+  },
+  "results": [
+    {
+      "dataset": "adult",
+      "size": "small",
+      "features": 14,
+      "trees": 10,
+      "depth": 3,
+      "cpu_median_s": 0.006017167121171951,
+      "metal_median_s": 0.0016942080110311508,
+      "speedup": 3.5516105944450738,
+      "max_abs_attribution_error": 1.1920928955078125e-07
+    },
+    {
+      "dataset": "adult",
+      "size": "med",
+      "features": 14,
+      "trees": 100,
+      "depth": 8,
+      "cpu_median_s": 2.1280813328921795,
+      "metal_median_s": 0.11922095809131861,
+      "speedup": 17.849892896030514,
+      "max_abs_attribution_error": 1.1563301086425781e-05
+    },
+    {
+      "dataset": "covtype",
+      "size": "small",
+      "features": 54,
+      "trees": 70,
+      "depth": 3,
+      "cpu_median_s": 0.06045295903459191,
+      "metal_median_s": 0.005280792014673352,
+      "speedup": 11.44770687173736,
+      "max_abs_attribution_error": 7.152557373046875e-07
+    },
+    {
+      "dataset": "covtype",
+      "size": "med",
+      "features": 54,
+      "trees": 700,
+      "depth": 8,
+      "cpu_median_s": 11.410886792000383,
+      "metal_median_s": 1.0599888330325484,
+      "speedup": 10.765100948615368,
+      "max_abs_attribution_error": 1.9788742065429688e-05
+    },
+    {
+      "dataset": "cal_housing",
+      "size": "small",
+      "features": 8,
+      "trees": 10,
+      "depth": 3,
+      "cpu_median_s": 0.008709999965503812,
+      "metal_median_s": 0.001105917152017355,
+      "speedup": 7.875815968325924,
+      "max_abs_attribution_error": 7.450580596923828e-08
+    },
+    {
+      "dataset": "cal_housing",
+      "size": "med",
+      "features": 8,
+      "trees": 100,
+      "depth": 8,
+      "cpu_median_s": 3.7368834998924285,
+      "metal_median_s": 0.1295813750475645,
+      "speedup": 28.83812197949557,
+      "max_abs_attribution_error": 9.894371032714844e-06
+    },
+    {
+      "dataset": "fashion_mnist",
+      "size": "small",
+      "features": 784,
+      "trees": 100,
+      "depth": 3,
+      "cpu_median_s": 0.10905187483876944,
+      "metal_median_s": 0.01999629195779562,
+      "speedup": 5.453604851786293,
+      "max_abs_attribution_error": 1.7881393432617188e-07
+    },
+    {
+      "dataset": "fashion_mnist",
+      "size": "med",
+      "features": 784,
+      "trees": 1000,
+      "depth": 8,
+      "cpu_median_s": 22.48327670781873,
+      "metal_median_s": 5.1328888749703765,
+      "speedup": 4.3802383522180754,
+      "max_abs_attribution_error": 2.682209014892578e-05
+    }
+  ],
+  "limitations": [
+    "Steady-state explain calls only; fetch, training, compilation, setup, and warmup are excluded.",
+    "One M4 Max session with five timed calls per engine per cell; no confidence interval is claimed.",
+    "Adult and Fashion-MNIST use ordinal encoding, so those models are not directly comparable to upstream categorical CUDA results.",
+    "Rows are sampled from training data with replacement.",
+    "No privileged powermetrics trace was available, so no energy claim is made.",
+    "Large cells are explicitly opt-in and were not part of the bounded v0.1 validation."
+  ]
+}

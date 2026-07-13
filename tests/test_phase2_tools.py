@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import argparse
+import copy
 import hashlib
 import json
 import os
@@ -13,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import jsonschema
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARKS = ROOT / "benchmarks"
@@ -20,6 +23,7 @@ sys.path.insert(0, str(BENCHMARKS))
 
 from phase2_power import load_samples, summarize_jobs  # noqa: E402
 from phase2_cpu_shap import normalize_shap_values  # noqa: E402
+import benchmark_mac  # noqa: E402
 
 
 def run(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
@@ -35,6 +39,47 @@ def assert_manifest(path: Path, *, kind: str, cols: int, groups: int) -> dict:
     for name, expected in manifest["sha256"].items():
         assert hashlib.sha256((path / name).read_bytes()).hexdigest() == expected
     return manifest
+
+
+def assert_power_windows(result: dict, expected_samples: int) -> None:
+    """Check the UTC interval contract consumed by phase2_power.summarize_jobs."""
+    started = dt.datetime.fromisoformat(result["started_utc"])
+    finished = dt.datetime.fromisoformat(result["finished_utc"])
+    assert started.utcoffset() == dt.timedelta(0)
+    assert finished.utcoffset() == dt.timedelta(0)
+    assert started <= finished
+
+    windows = result["sample_windows_utc"]
+    assert len(windows) == expected_samples
+    assert [window["elapsed_s"] for window in windows] == result["timing_s"][
+        "samples"
+    ]
+    previous = started
+    for window in windows:
+        sample_start = dt.datetime.fromisoformat(window["started_utc"])
+        sample_finish = dt.datetime.fromisoformat(window["finished_utc"])
+        assert sample_start.utcoffset() == dt.timedelta(0)
+        assert sample_finish.utcoffset() == dt.timedelta(0)
+        assert previous <= sample_start <= sample_finish <= finished
+        assert window["elapsed_s"] >= 0
+        previous = sample_finish
+
+    # The aggregate result can be passed directly to the existing power correlator.
+    duration_s = max((finished - started).total_seconds(), 1e-6)
+    summary = summarize_jobs(
+        [
+            {
+                "timestamp": finished,
+                "elapsed_ns": int((duration_s + 1.0) * 1e9),
+                "processor": {"cpu_power": 1500.0},
+                "thermal_pressure": "Nominal",
+            }
+        ],
+        [result],
+    )[0]
+    assert summary["status"] == "ok"
+    assert np.isclose(summary["cpu_mean_mw"], 1500.0)
+    assert summary["job"]["rows"] == result["rows"]
 
 
 def main() -> None:
@@ -99,6 +144,31 @@ def main() -> None:
         )
         checks += 1
 
+        # CPU baselines expose aggregate and exact-call UTC intervals in the same
+        # contract as the Metal suite, so one powermetrics trace can correlate both.
+        cpu_xgboost = root / "cpu-xgboost.json"
+        run(
+            str(BENCHMARKS / "phase2_cpu_xgboost.py"),
+            str(wide / "model.json"),
+            str(wide / "X.csv"),
+            "--expected",
+            str(wide / "expected.csv"),
+            "--output",
+            str(cpu_xgboost),
+            "--row-limits",
+            "8",
+            "--warmup",
+            "0",
+            "--iterations",
+            "2",
+            "--nthread",
+            "1",
+        )
+        cpu_xgboost_payload = json.loads(cpu_xgboost.read_text())
+        assert cpu_xgboost_payload["schema"] == "metal_treeshap.phase2.cpu_xgboost.v1"
+        assert_power_windows(cpu_xgboost_payload["results"][0], 2)
+        checks += 3
+
         multiclass = root / "multiclass"
         run(
             workload_tool,
@@ -150,6 +220,50 @@ def main() -> None:
         assert json.loads(disabled.read_text())["status"] == "skipped"
         checks += 1
 
+        # A tiny fake SHAP frontend exercises the successful artifact path without
+        # adding SHAP's compiled dependency stack to the portable tool test.
+        fake_modules = root / "fake-modules"
+        fake_modules.mkdir()
+        (fake_modules / "shap.py").write_text(
+            """import numpy as np
+__version__ = 'test-double'
+class _Model:
+    num_outputs = 1
+    model_type = 'xgboost-test-double'
+class TreeExplainer:
+    def __init__(self, booster, **kwargs):
+        self.model = _Model()
+        self.expected_value = 0.0
+    def shap_values(self, X, check_additivity=False):
+        return np.zeros_like(X, dtype=np.float32)
+"""
+        )
+        cpu_shap = root / "cpu-shap.json"
+        shap_env = dict(os.environ)
+        shap_env["PYTHONPATH"] = os.pathsep.join(
+            filter(None, (str(fake_modules), shap_env.get("PYTHONPATH")))
+        )
+        run(
+            str(BENCHMARKS / "phase2_cpu_shap.py"),
+            str(wide / "model.json"),
+            str(wide / "X.csv"),
+            "--output",
+            str(cpu_shap),
+            "--row-limits",
+            "8",
+            "--warmup",
+            "0",
+            "--iterations",
+            "2",
+            "--nthread",
+            "1",
+            env=shap_env,
+        )
+        cpu_shap_payload = json.loads(cpu_shap.read_text())
+        assert cpu_shap_payload["status"] == "ok"
+        assert_power_windows(cpu_shap_payload["results"][0], 2)
+        checks += 3
+
         # Synthetic plist samples exercise interval overlap and missing-data reporting.
         power = root / "power.plist"
         sample_end = dt.datetime(2026, 7, 12, 12, 0, 1)
@@ -174,6 +288,7 @@ def main() -> None:
             {
                 "started_utc": "2026-07-12T12:00:00.500000+00:00",
                 "finished_utc": "2026-07-12T12:00:01.500000+00:00",
+                "explained_rows": 100,
             },
             {
                 "started_utc": "2026-07-12T12:00:03+00:00",
@@ -181,10 +296,142 @@ def main() -> None:
             },
         ]
         summaries = summarize_jobs(load_samples(power), jobs)
-        assert summaries[0]["gpu_mean_mw"] == 3000.0
-        assert summaries[0]["gpu_estimated_energy_j"] == 3.0
+        assert np.isclose(summaries[0]["gpu_mean_mw"], 3000.0)
+        assert np.isclose(summaries[0]["gpu_estimated_energy_j"], 3.0)
+        assert np.isclose(
+            summaries[0]["gpu_estimated_energy_j_per_explained_row"], 0.03
+        )
+        assert summaries[0]["job"]["explained_rows"] == 100
         assert summaries[1]["status"] == "unavailable"
+        checks += 5
+
+        # Exact per-call windows exclude idle/hash gaps inside an aggregate envelope.
+        gap_job = {
+            "started_utc": "2026-07-12T12:00:00+00:00",
+            "finished_utc": "2026-07-12T12:00:02+00:00",
+            "sample_windows_utc": [
+                {
+                    "started_utc": "2026-07-12T12:00:00+00:00",
+                    "finished_utc": "2026-07-12T12:00:00.250000+00:00",
+                },
+                {
+                    "started_utc": "2026-07-12T12:00:01.750000+00:00",
+                    "finished_utc": "2026-07-12T12:00:02+00:00",
+                },
+            ],
+        }
+        gap_summary = summarize_jobs(load_samples(power), [gap_job])[0]
+        assert gap_summary["job_window_count"] == 2
+        assert np.isclose(gap_summary["job_duration_s"], 0.5)
+        assert np.isclose(gap_summary["gpu_estimated_energy_j"], 1.5)
         checks += 3
+
+        # The real-data artifact schema and atomic-resume compatibility are permanent
+        # contracts. In particular, a partial matrix must never span software versions.
+        sample = {
+            "iteration": 0,
+            "order_index": 0,
+            "seconds": 0.1,
+            "started_utc": "2026-07-12T12:00:00+00:00",
+            "finished_utc": "2026-07-12T12:00:00.100000+00:00",
+        }
+        implementation = {"fingerprint_sha256": "test-fingerprint"}
+        device = {
+            "dataset": "cal_housing",
+            "size": "small",
+            "model": "cal_housing-small",
+            "device": "cpu",
+            "rows": 8,
+            "features": 8,
+            "rounds": 10,
+            "depth": 3,
+            "warmup": 0,
+            "iterations": 1,
+            "nthread": 1,
+            "seed": 432,
+            "samples": [sample],
+            "median_s": 0.1,
+            "rows_per_s": 80.0,
+            "max_local_accuracy_error": 0.0,
+            "local_accuracy": True,
+            "dataset_sha256": "d",
+            "model_json_sha256": "m",
+            "explain_matrix_sha256": "x",
+            "output_sha256": "o",
+            "implementation": implementation,
+            "xgboost_version": benchmark_mac.xgb.__version__,
+            "scikit_learn_version": benchmark_mac.sklearn.__version__,
+            "python_version": benchmark_mac.platform.python_version(),
+        }
+        cell = {
+            "schema": "metal_treeshap.realdata_cell.v1",
+            "started_utc": sample["started_utc"],
+            "finished_utc": sample["finished_utc"],
+            "configuration_order": "seeded_random_within_iteration",
+            "power_design": "timed_call_windows_only",
+            "devices": [device],
+            "comparison": None,
+            "power_jobs": [{"dataset": "cal_housing", "size": "small",
+                            "device": "cpu", **sample}],
+        }
+        realdata = benchmark_mac._suite_payload([cell])
+        realdata_schema = json.loads((BENCHMARKS / "realdata_schema.json").read_text())
+        validator = jsonschema.Draft202012Validator(
+            realdata_schema, format_checker=jsonschema.FormatChecker()
+        )
+        validator.validate(realdata)
+        invalid = copy.deepcopy(realdata)
+        invalid["cells"][0]["unexpected"] = True
+        try:
+            validator.validate(invalid)
+        except jsonschema.ValidationError:
+            pass
+        else:
+            raise AssertionError("real-data schema accepted an unknown cell property")
+        checks += 2
+
+        resume_path = root / "resume.json"
+        resume_path.write_text(json.dumps(realdata))
+        resume_args = argparse.Namespace(
+            nrows=8, warmup=0, niter=1, nthread=1, seed=432, device="cpu"
+        )
+        saved_provenance = benchmark_mac._PROVENANCE
+        benchmark_mac._PROVENANCE = {
+            "fingerprint_sha256": implementation["fingerprint_sha256"]
+        }
+        try:
+            assert benchmark_mac._resume_cells(resume_path, resume_args) == [cell]
+            incompatible = copy.deepcopy(realdata)
+            incompatible["cells"][0]["devices"][0]["xgboost_version"] = "different"
+            resume_path.write_text(json.dumps(incompatible))
+            try:
+                benchmark_mac._resume_cells(resume_path, resume_args)
+            except SystemExit as error:
+                assert "software versions differ" in str(error)
+            else:
+                raise AssertionError("resume accepted an incompatible XGBoost version")
+            incompatible = copy.deepcopy(realdata)
+            incompatible["power_trace"] = {"requested": True, "status": "skipped"}
+            resume_path.write_text(json.dumps(incompatible))
+            try:
+                benchmark_mac._resume_cells(resume_path, resume_args)
+            except SystemExit as error:
+                assert "power evidence" in str(error)
+            else:
+                raise AssertionError("resume accepted a prior power-capture request")
+        finally:
+            benchmark_mac._PROVENANCE = saved_provenance
+        checks += 3
+
+        # Failed or unauthorized telemetry must not trigger expensive conditioning
+        # blocks that cannot produce power evidence.
+        assert not benchmark_mac._power_blocks_enabled(
+            root / "power.plist", {"status": "skipped"}
+        )
+        assert benchmark_mac._power_blocks_enabled(
+            root / "power.plist", {"status": "capturing"}
+        )
+        checks += 2
 
         # End-to-end runner job construction: six atomic tiles, one deterministic full.
         fake = root / "fake_benchmark.py"

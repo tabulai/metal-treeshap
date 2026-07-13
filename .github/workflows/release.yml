@@ -48,7 +48,7 @@ jobs:
         env:
           CMAKE_ARGS: -DMETAL_TREESHAP_BUILD_SHADERS=OFF
         run: |
-          python -m pip install --upgrade pip build "numpy>=1.24" twine
+          python -m pip install --upgrade pip build "numpy>=1.24" "pandas>=2" twine
           python -m build --wheel --outdir dist
           tag="cp$(printf '%s' '${{ matrix.python }}' | tr -d .)"
           python ci/verify_dist.py --require-wheel --expected-wheel-tag "$tag" dist/*
@@ -171,7 +171,7 @@ jobs:
           version="$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' \
             python/metal_treeshap/__init__.py)"
           test -n "$version"
-          python -m pip install --upgrade pip "numpy>=1.24"
+          python -m pip install --upgrade pip "numpy>=1.24" "pandas>=2"
           for attempt in 1 2 3 4 5 6 7 8; do
             if python -m pip install --no-cache-dir --no-deps \
               --index-url https://test.pypi.org/simple/ \
@@ -224,6 +224,7 @@ jobs:
       - name: Install the immutable PyPI release
         run: |
           version="${GITHUB_REF_NAME#v}"
+          python -m pip install "pandas>=2"
           for attempt in 1 2 3 4 5 6 7 8; do
             if python -m pip install --no-cache-dir "metal-treeshap==$version"; then
               break

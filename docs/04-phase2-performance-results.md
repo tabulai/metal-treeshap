@@ -179,12 +179,13 @@ kernel hashes, and applies both an elementwise and row/group-sum 1e-3 gate.
 - One M4 Max was measured. M1–M4 base/Pro and future devices may select different tuning.
 - The result uses deterministic synthetic stress and hot workloads. The full upstream
   adult/covtype/cal-housing/fashion-MNIST matrix remains Phase 4 work.
-- No `shap.TreeExplainer` timing was collected because the `shap` package is not installed;
-  XGBoost's native exact `pred_contribs` is the current CPU baseline.
+- This original Phase-2 session used XGBoost's native exact `pred_contribs` as its CPU baseline.
+  Phase 2.1 subsequently added the optional `shap.TreeExplainer` comparison; see
+  `docs/05-phase21-production-results.md`.
 - Privileged `powermetrics` energy/temperature telemetry was unavailable. Seeded shuffling,
   outer rounds, raw samples, and explicit thermal caveats mitigate but do not erase this.
-- Runtime source compilation is measured separately. Full-Xcode offline metallib packaging
-  remains part of the release workflow.
+- Runtime source compilation is measured separately and is the supported package fallback.
+  An offline metallib remains an optional build optimization, not a packaging requirement.
 
 ## Statistical fallacy scan
 
