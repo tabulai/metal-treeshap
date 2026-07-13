@@ -7,7 +7,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "metal-treeshap"
-version = "0.1.0"
+dynamic = ["version"]
 description = "TreeSHAP inference accelerated by Apple GPUs through Metal"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,8 +20,20 @@ classifiers = [
   "Operating System :: MacOS :: MacOS X",
   "Programming Language :: C++",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
 ]
+
+[project.urls]
+Homepage = "https://github.com/tunguz/metal-treeshap"
+Documentation = "https://github.com/tunguz/metal-treeshap#readme"
+Issues = "https://github.com/tunguz/metal-treeshap/issues"
+Source = "https://github.com/tunguz/metal-treeshap"
 
 [project.optional-dependencies]
 xgboost = ["xgboost>=2.0"]
@@ -34,16 +46,23 @@ build.targets = ["_native"]
 sdist.include = [
   "bindings/**",
   "include/**",
-  "python/**",
+  "python/metal_treeshap/*.py",
+  "python/metal_treeshap/py.typed",
   "shaders/treeshap.metal",
   "src/metal_host.hpp",
   "third_party/metal-cpp/**",
   "tools/extract_paths.py",
   "CMakeLists.txt",
+  "CHANGELOG.md",
   "LICENSE",
   "NOTICE",
   "README.md",
+  "RELEASING.md",
 ]
+[[tool.dynamic-metadata]]
+provider = "scikit_build_core.metadata.regex"
+field = "version"
+input = "python/metal_treeshap/__init__.py"
 
 [tool.scikit-build.cmake.define]
 METAL_TREESHAP_BUILD_PYTHON = true

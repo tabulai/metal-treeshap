@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable:
+    name: Portable / Python ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-python@v6.3.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install portable test tools
+        run: python -m pip install --upgrade pip build ninja "numpy>=1.24" twine
+      - name: Build portable C++ targets
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMETAL_TREESHAP_BUILD_PYTHON=OFF
+          cmake --build build --parallel 2
+      - name: Run portable CTest suite
+        run: ctest --test-dir build --output-on-failure --timeout 300
+      - name: Exercise source checkout without the native extension
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python:${{ github.workspace }}
+        run: python tests/test_python_source.py
+      - name: Run Python extractor and benchmark-tool regressions
+        run: |
+          python tests/test_extract_paths.py
+          python tests/test_phase2_tools.py
+      - name: Build and inspect source distribution
+        run: |
+          python -m build --sdist --outdir dist
+          python -m twine check dist/*
+          python ci/verify_dist.py --require-sdist dist/*
+
+  xgboost-compatibility:
+    name: XGBoost ${{ matrix.xgboost }} golden suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        xgboost: ["2.0.3", "3.1.2", "3.3.0"]
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-python@v6.3.0
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install compatibility dependencies
+        run: >-
+          python -m pip install --upgrade pip ninja
+          "numpy>=1.24,<2"
+          "xgboost==${{ matrix.xgboost }}"
+      - name: Build reference implementation
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMETAL_TREESHAP_BUILD_PYTHON=OFF
+          cmake --build build --target reference_cli --parallel 2
+      - name: Run XGBoost golden and frozen-fixture regressions
+        run: |
+          python tests/test_vs_xgboost.py build/reference_cli
+          python tests/test_fixture.py build/reference_cli
+
+  metal:
+    name: Apple Silicon Metal + wheel
+    runs-on: ${{ vars.METAL_RUNNER || 'macos-15' }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-python@v6.3.0
+        with:
+          python-version: "3.13"
+          architecture: arm64
+          cache: pip
+      - name: Require Apple Silicon and a usable Metal device
+        run: |
+          test "$(uname -m)" = arm64 || {
+            echo "ERROR: Metal CI requires an arm64 macOS runner; got $(uname -m)." >&2
+            exit 1
+          }
+          xcrun swift ci/check_metal.swift
+      - name: Install build and test tools
+        run: python -m pip install --upgrade pip build ninja "numpy>=1.24" twine
+      - name: Build C++ and Metal targets
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMETAL_TREESHAP_BUILD_SHADERS=OFF \
+            -DMETAL_TREESHAP_BUILD_PYTHON=OFF
+          cmake --build build --parallel 2
+      - name: Run complete on-device CTest suite
+        run: ctest --test-dir build --output-on-failure --timeout 300
+      - name: Build and validate wheel
+        env:
+          CMAKE_ARGS: -DMETAL_TREESHAP_BUILD_SHADERS=OFF
+        run: |
+          python -m build --wheel --outdir dist
+          python -m twine check dist/*
+          python ci/verify_dist.py --require-wheel --expected-wheel-tag cp313 dist/*
+          rm -rf wheel-unpack
+          python -m zipfile -e dist/*.whl wheel-unpack
+          native="$(find wheel-unpack/metal_treeshap -name '_native*.so' -print -quit)"
+          test -n "$native"
+          file "$native"
+          file "$native" | grep -q 'arm64'
+      - name: Install wheel and run public API tests on Metal
+        run: |
+          python -m pip install --force-reinstall dist/*.whl
+          METAL_TREESHAP_SOURCE_DIR="$PWD" python tests/test_python_api.py

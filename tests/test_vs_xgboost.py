@@ -13,8 +13,9 @@ checks, at the project's stated 1e-3 gate:
 
 Coverage: regression with missing values, binary logistic, multiclass, multiclass with
 num_parallel_tree > 1 (tree_info mapping), DART (weight_drop), a 500-tree depth-8 stress
-model, an objective-link mini-suite (identity/logit/log objectives, empirically pinned),
-and a rejection check for objectives outside the tested allowlist.
+model, XGBoost 3.3's flattened DART layout when available, an objective-link mini-suite
+(identity/logit/log objectives, empirically pinned), and a rejection check for objectives
+outside the tested allowlist.
 
 THIS RUN IS NON-MUTATING BY DEFAULT (review requirement: verification must not regenerate
 its own oracle). Explicit flags:
@@ -62,6 +63,17 @@ TOL = 1e-3  # the project's stated correctness gate (observed errors are ~1e-6..
 # noise ratios: rel_i = |d_i| / max(|phi64_i|, REL_FLOOR_FRACTION * max|phi64|).
 REL_FLOOR_FRACTION = 1e-3
 ORDER_SEEDS = 5
+
+
+def xgboost_version() -> tuple[int, ...]:
+    """Numeric release prefix, ignoring development/local suffixes."""
+    out = []
+    for part in xgb.__version__.split("."):
+        digits = "".join(c for c in part if c.isdigit())
+        if not digits:
+            break
+        out.append(int(digits))
+    return tuple(out)
 
 EVIDENCE_SOURCES = (
     os.path.join(HERE, "test_vs_xgboost.py"),
@@ -332,6 +344,15 @@ if __name__ == "__main__":
              extra_params={"num_parallel_tree": 2}, fixture=True)
     run_case("dart", "reg:squarederror", 8, 2000, 200, 4, 30, seed=6,
              extra_params={"booster": "dart", "rate_drop": 0.2}, fixture=True)
+    if xgboost_version() >= (3, 3):
+        # In 3.3+, dropout lives directly on the tree booster.  The JSON still says
+        # name=gbtree, with weight_drop adjacent to model; this is distinct from the
+        # <=3.2 wrapper layout exercised by the same "dart" case on older releases.
+        run_case("dart-xgb33", "reg:squarederror", 6, 600, 64, 3, 12, seed=33,
+                 extra_params={"rate_drop": 0.25, "skip_drop": 0.0, "one_drop": 1},
+                 fixture=True)
+    else:
+        print(f"[SKIP] dart-xgb33 requires xgboost >= 3.3 (found {xgb.__version__})")
     # Deterministic real-model regression for XGBoost's missing-only path representation.
     # The root and child split f0 at the same threshold with opposite numeric branches,
     # while both route NaN toward the -3 leaf.  Dedup therefore yields [1,1), missing=true.

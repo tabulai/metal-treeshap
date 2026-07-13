@@ -32,7 +32,7 @@ add_test(NAME reference_cli_validation
          COMMAND ${Python3_EXECUTABLE}
                  ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_reference_cli.py
                  $<TARGET_FILE:reference_cli>)
-# Golden test needs python + xgboost (verified on 2.0.3 and 3.1.2):
+# Golden test needs python + xgboost (verified on 2.0.3, 3.1.2, and 3.3.0):
 #   python tests/test_vs_xgboost.py $<TARGET_FILE:reference_cli>
 # Fixture test needs only python + numpy (no xgboost):
 #   python tests/test_fixture.py $<TARGET_FILE:reference_cli>

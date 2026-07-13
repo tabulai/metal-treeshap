@@ -21,6 +21,8 @@ Start with these documents in `docs/`:
 5. **[docs/05-phase21-production-results.md](docs/05-phase21-production-results.md)** — the
    atomic-tiling result, precise Kahan reducer, wide/multiclass measurements, Python API,
    optional SHAP comparison, and final production defaults.
+6. **[docs/06-v0.1-release-validation.md](docs/06-v0.1-release-validation.md)** — the v0.1
+   compatibility, wheel, Metal, and release-automation gates plus remaining external checks.
 
 ## Status (Phase 2.1 production path complete on M4 Max)
 
@@ -42,10 +44,10 @@ deterministic stress error about 10.8×, and a tested nanobind wheel now exposes
 | Path representation + 32-B GPU layout | `include/metal_treeshap/paths.h` | **built & tested** (any platform) |
 | Host preprocessing + two-layer validation (raw checks BEFORE dedup so merging can't launder malformed input, structural checks after; BFD/FFD/NF packing, sort, segments, fp64 bias) | `include/metal_treeshap/preprocess.h` | **built & tested**, ASAN/UBSAN clean locally |
 | Scalar reference oracle (lane-faithful float recurrences, fp64/fp32 accumulation, order-shuffle mode) | `reference/reference_shap.h` | **built & tested vs xgboost** |
-| XGBoost extractor: raw-JSON based — `tree_info` groups, vector base_score intercepts (3.1+), empirically-verified objective link table with explicit allowlist, DART `weight_drop`, categorical/multi-target rejection; works from a model file without xgboost | `tools/extract_paths.py` | **tested on xgboost 2.0.3 AND 3.1.2**, incl. `num_parallel_tree`, DART, and 9 objective-link cases |
-| Golden tests (16 cases + rejection check; **non-mutating** — fixtures/results only change under explicit flags) | `tests/test_vs_xgboost.py` → `tests/RESULTS.md` | **passing on XGBoost 2.0.3 and 3.1.2** at the 1e-3 gate |
+| XGBoost extractor: raw-JSON based — `tree_info` groups, vector base_score intercepts (3.1+), empirically-verified objective link table with explicit allowlist, legacy and 3.3+ flattened DART `weight_drop`, categorical/multi-target rejection; works from a model file without xgboost | `tools/extract_paths.py` | **tested on xgboost 2.0.3, 3.1.2, and 3.3.0**, incl. `num_parallel_tree`, both DART layouts, and 9 objective-link cases |
+| Golden tests (16 cases on 2.0/3.1, 17 on 3.3, plus rejection check; **non-mutating** — fixtures/results only change under explicit flags) | `tests/test_vs_xgboost.py` → `tests/RESULTS.md` | **passing on XGBoost 2.0.3, 3.1.2, and 3.3.0** at the 1e-3 gate |
 | Property-based additivity tests (stumps, structurally guaranteed depth-31/32-element groups, deterministic comb, repeated features, ~1e-4 covers, NaNs, independent exact-Shapley vector oracle) | `tests/test_property_additivity.cpp` | **passing**, incl. asserted 32-lane group execution |
-| Frozen fixtures replayable without xgboost (6 model cases, including a real missing-only path, plus synthetic `deep31` 32-lane comb) | `tests/fixtures/*/`, `tests/test_fixture.py` | **passing** |
+| Frozen fixtures replayable without xgboost (7 model cases, including XGBoost 3.3 DART and a real missing-only path, plus synthetic `deep31` 32-lane comb) | `tests/fixtures/*/`, `tests/test_fixture.py` | **all 8 passing** |
 | Metal kernels: atomic, SIMD pre-aggregation, deterministic partials+precise Kahan reduction | `shaders/treeshap.metal` | **validated on M4 Max**: Metal 3 compile, width 32, lane-31, missing-only NaN routing, every frozen fixture ≤ 6.51e-6; separate fast recurrence and precise reducer pipelines |
 | metal-cpp compiled-model host: persistent shared/private model buffers, three accumulation modes, bounded private deterministic scratch, atomic/deterministic row tiling, timing and tuning controls, hardened ownership/shape checks | `src/metal_host.hpp` | **locally built and exercised on M4 Max** across all fixtures and modes; deterministic output bit-stable across 100 repeats and tile sizes |
 | Metal fixture runner (repository-reproducible validation; runtime-compiles the shader when the offline toolchain is absent) | `src/main_metal.cpp`, Metal CTests | **passing locally on M4 Max**; pinned metal-cpp headers are included |
@@ -74,7 +76,8 @@ empirically end-to-end against `pred_contribs`): identity-link `reg:squarederror
 `binary:logitraw`, `binary:hinge`, `multi:softmax`, `multi:softprob`; logit-link
 `binary:logistic`, `reg:logistic`; log-link `count:poisson`, `reg:gamma`, `reg:tweedie`.
 Anything else (survival, ranking, multi-target, categorical splits) is **rejected with a
-clear error** rather than silently mis-linked. Verified against xgboost 2.0.3 and 3.1.2.
+clear error** rather than silently mis-linked. Verified against xgboost 2.0.3, 3.1.2,
+and 3.3.0.
 
 ## Quickstart (Apple Silicon — Metal differential run)
 
@@ -100,10 +103,11 @@ workload family.
 ## Python `MetalTreeExplainer`
 
 ```bash
-python3 -m pip install build
-python3 -m build --wheel
-python3 -m pip install dist/metal_treeshap-*.whl
+python3 -m pip install metal-treeshap
 ```
+
+For a source checkout, install `build`, run `python3 -m build --wheel`, and install the
+resulting `dist/metal_treeshap-*.whl`.
 
 ```python
 from metal_treeshap import MetalTreeExplainer
@@ -114,6 +118,18 @@ phis = explainer.explain(X)
 
 `from_paths` is also available and requires explicit per-group intercepts. The package targets
 macOS 13+ on ARM64 and runtime-compiles the bundled shader when an offline metallib is absent.
+
+NumPy arrays and pandas `DataFrame` objects are accepted. DataFrame columns are consumed by
+position: pass them in the same feature order used to train the model. `MetalTreeExplainer` does
+not currently reorder columns against XGBoost feature names. The result is a NumPy array.
+Single-output models return `(rows, features + 1)`; multiclass models return
+`(rows, classes, features + 1)`, and the final entry on each feature axis is the bias term.
+
+```python
+# pandas is optional; metal-treeshap itself depends only on NumPy.
+feature_order = ["age", "income", "tenure"]
+phis = explainer.explain(frame.loc[:, feature_order])
+```
 
 ## Reproduce the Phase 2 benchmark
 

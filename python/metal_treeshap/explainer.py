@@ -10,12 +10,14 @@ from typing import Any
 
 import numpy as np
 
+_native_import_error: ImportError | None = None
 try:
     from . import _native
-except ImportError as _native_import_error:  # Source-tree docs/imports remain usable.
+except ImportError as error:  # Source-tree docs/imports remain usable.
     _native = None
-else:
-    _native_import_error = None
+    # Exception targets are cleared when an ``except`` suite exits. Keep a separate
+    # reference so the delayed, user-facing error can retain the original cause.
+    _native_import_error = error
 
 
 def _require_native():
@@ -159,7 +161,9 @@ class MetalTreeExplainer:
         """
         try:
             from ._extract_paths import extract_model
-        except ImportError:
+        except ModuleNotFoundError as error:
+            if error.name != f"{__package__}._extract_paths":
+                raise
             # Development-source fallback; wheels install the same checked-in extractor
             # as ``metal_treeshap._extract_paths`` via CMake.
             from tools.extract_paths import extract_model

@@ -285,7 +285,7 @@ optional behind toolchain detection so the portable quickstart works without ful
 UBSAN option added (validation runs were clean).
 
 **Phase 1 — End-to-end Metal correctness. COMPLETE locally on M4 Max.**
-The checked-in compiled-model host and runner execute all seven frozen fixtures at
+The checked-in compiled-model host and runner execute all eight frozen fixtures at
 `rows_per_simdgroup` settings 1, 7 and 1,024, covering multi-bin, multi-bank, partial-SIMD bins,
 the `deep31` genuine lane-31 case, a real XGBoost missing-only NaN path, empty-model/zero-row
 paths and repeated calls — max error 6.51e-6 (§9). The host includes exception-safe movable
@@ -367,7 +367,7 @@ observed dispersion rather than confidence intervals.
 |---|---|---|
 | fp32 accumulation error or run-to-run variance unacceptable on huge ensembles | Medium | Phase-2 stress atomics remain <8.3e-5 at the measured gates; deterministic two-stage mode gives zero repeat spread with bounded scratch when bit stability is required |
 | Atomic contention on hot features (root splits shared by most paths) | Low on tested M4 Max; device-dependent | Hardware float atomics won both stress and 16× hot-traffic tests; SIMD-group pre-aggregation remains selectable for future devices/models |
-| XGBoost serialization churn (base_score became a vector in 3.1; future schema drift) | Medium | Extractor reads the raw JSON model with version-robust parsing; the expanded 16-case suite passes 2.0.3 and 3.1.2; frozen fixtures catch drift without installed xgboost |
+| XGBoost serialization churn (base_score became a vector in 3.1; DART flattened in 3.3; future schema drift) | Medium | Extractor reads the raw JSON model with version-robust parsing; the 16–17-case suite passes 2.0.3, 3.1.2, and 3.3.0; frozen fixtures catch drift without installed xgboost |
 | `simd_shuffle` undefined-lane semantics differ from CUDA (`shfl_up` low lanes) | Low (retired on fixtures) | Clamped-index shuffles; kernel executed correctly on M4 Max model fixtures and the lane-31 comb |
 | MSL struct layout/alignment mismatch with C++ | Low | Explicit 32-B `GpuPathElement` layout, `static_assert` on the C++ side, fixture-verified on device |
 | Malformed/hostile path input reaching out-of-bounds writes | Low (closed) | Phase 0.5 validation: one-root, range, finiteness, narrowing checks before packing |
@@ -402,13 +402,14 @@ intercept, repeated-call and invalid-tuning behavior:
 Those external rounds established the kernel and host semantics. The checked-in
 `src/main_metal.cpp` (same CSV contract as `reference_cli`, runtime-source fallback),
 `tests/test_fixture.py --metal-cli`, and required-Metal CMake/CTest path now reproduce that
-validation locally across settings 1, 7 and 1,024. The current seven-fixture run also includes
-the real XGBoost missing-only repeated-feature case, pinning empty numeric interval + NaN routing
-through the Metal engine. This closes Phase 1 correctness; it does not provide a speedup
-measurement.
+validation locally across settings 1, 7 and 1,024. The current eight-fixture run also includes
+the real XGBoost missing-only repeated-feature case and the XGBoost 3.3 flattened-DART case,
+pinning empty numeric interval + NaN routing and weighted-leaf extraction through the Metal
+engine. This closes Phase 1 correctness; it does not provide a speedup measurement.
 
-**CPU pipeline results**, from `tests/RESULTS.md` — the expanded 16-case suite is green on
-**xgboost 2.0.3 and 3.1.2**. Table from the 3.1.2 run:
+**CPU pipeline results**, from `tests/RESULTS.md` — the 16-case suite is green on
+**xgboost 2.0.3 and 3.1.2**, and the 17-case suite including flattened DART is green on
+**xgboost 3.3.0**. Table from the 3.1.2 run:
 
 | model | booster | trees | depth | paths | max\|phi − xgb\| | sum-to-margin | fp32 abs | fp32 rel (elem., floored) | order spread |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|

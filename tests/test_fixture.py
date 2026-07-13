@@ -15,7 +15,7 @@ tools/make_deep_fixture.py — never by an ordinary verification run.
 DUAL-ENGINE MODE (macOS): when METAL_CLI is set (env var, or --metal-cli <path>), every
 fixture ALSO runs through the Metal engine (src/main_metal.cpp) and is compared against
 the same frozen expectations — the repository-reproducible form of the on-device validation
-runs (observed Metal errors: <= 6.505e-6 across all seven current fixtures).
+runs (observed Metal errors: <= 6.501e-6 across all eight current fixtures).
 
 Usage: python tests/test_fixture.py [path/to/reference_cli] [--metal-cli path/to/metal_cli]
              [--metal-rows-per-simdgroup N]

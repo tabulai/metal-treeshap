@@ -9,7 +9,8 @@ text dump lacks:
                            num_parallel_tree > 1, where round-robin by tree index is wrong)
   * sum_hessian          — node cover; zero_fraction = cover(child)/cover(parent)
   * default_left         — missing-value branch per node
-  * weight_drop          — DART tree weights (leaf values are scaled by these)
+  * weight_drop          — DART tree weights (leaf values are scaled by these),
+                           including XGBoost 3.3+'s flattened ``name=gbtree`` layout
   * categories_nodes     — categorical splits (explicitly rejected: not yet supported)
   * base_score           — model intercept; scalar in xgboost <= 3.0, may be vector-valued
                            in 3.1+ — both are handled, returned per output group in
@@ -164,19 +165,45 @@ def extract_model(source) -> ExtractedModel:
     m = load_model_dict(source)
     learner = m["learner"]
     gb = learner["gradient_booster"]
-    booster_name = gb["name"]
+    serialized_booster_name = gb["name"]
 
-    if booster_name == "dart":
+    if serialized_booster_name == "dart":
+        # XGBoost <= 3.2 serializes the DART wrapper explicitly and nests the
+        # underlying tree model one level deeper.
         inner = gb["gbtree"]["model"]
-        weight_drop = [float(w) for w in gb["weight_drop"]]
-    elif booster_name == "gbtree":
+        if "weight_drop" not in gb:
+            raise ValueError("DART model is missing weight_drop")
+        raw_weight_drop = gb["weight_drop"]
+        has_dropout_weights = True
+        booster_name = "dart"
+    elif serialized_booster_name == "gbtree":
+        # XGBoost 3.3 removed the DART wrapper.  A tree booster configured with
+        # dropout now serializes as ``name=gbtree`` with ``weight_drop`` beside
+        # ``model``.  Presence of that vector, not the name alone, distinguishes
+        # dropout from an ordinary gbtree model.
         inner = gb["model"]
-        weight_drop = None
+        raw_weight_drop = gb.get("weight_drop")
+        has_dropout_weights = "weight_drop" in gb
+        booster_name = "dart" if has_dropout_weights else "gbtree"
     else:
-        raise NotImplementedError(f"unsupported booster type: {booster_name!r} "
+        raise NotImplementedError(f"unsupported booster type: {serialized_booster_name!r} "
                                   "(gblinear has no trees to explain)")
 
     trees = inner["trees"]
+    weight_drop: list[float] | None = None
+    if has_dropout_weights:
+        if not isinstance(raw_weight_drop, list):
+            raise ValueError("weight_drop must be a JSON array")
+        try:
+            weight_drop = [float(w) for w in raw_weight_drop]
+        except (TypeError, ValueError) as e:
+            raise ValueError("weight_drop contains a non-numeric value") from e
+        if len(weight_drop) != len(trees):
+            raise ValueError(
+                f"weight_drop has {len(weight_drop)} entries for {len(trees)} trees")
+        if not all(math.isfinite(w) for w in weight_drop):
+            raise ValueError("weight_drop entries must all be finite")
+
     tree_info = [int(g) for g in inner["tree_info"]]
     if len(tree_info) != len(trees):
         raise ValueError("tree_info length does not match number of trees")
@@ -207,7 +234,9 @@ def extract_model(source) -> ExtractedModel:
 
     return ExtractedModel(paths=paths, num_groups=num_groups, intercepts=intercepts,
                           objective=objective, booster=booster_name,
-                          num_features=num_features)
+                          num_features=num_features,
+                          extras={"serialized_booster": serialized_booster_name,
+                                  "uses_dropout_weights": weight_drop is not None})
 
 
 # --- Backwards-compatible helpers -------------------------------------------------------
