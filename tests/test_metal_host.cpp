@@ -186,10 +186,14 @@ int main(int argc, char** argv) {
                             static_cast<ModelStorageMode>(99));
   }, "invalid model storage mode accepted");
 
-  const std::vector<float> x{-1.0f, 1.0f, std::numeric_limits<float>::quiet_NaN()};
-  DenseDataset dataset{x.data(), 3, 1};
+  // Rows cover both numeric branches, NaN missing routing, and the +/-inf routing rule
+  // (+inf follows only intervals whose upper bound is +infinity; see paths.h).
+  const std::vector<float> x{-1.0f, 1.0f, std::numeric_limits<float>::quiet_NaN(),
+                             std::numeric_limits<float>::infinity(),
+                             -std::numeric_limits<float>::infinity()};
+  DenseDataset dataset{x.data(), 5, 1};
   const Preprocessed pp = Preprocess(paths, 1, 1);
-  std::vector<float> expected(6, 0.0f);
+  std::vector<float> expected(10, 0.0f);
   ShapReference(dataset, pp, 1, expected.data(), intercept);
 
   for (AccumulationMode accumulation : {AccumulationMode::kAtomic,
@@ -201,9 +205,9 @@ int main(int argc, char** argv) {
       for (uint32_t rows_per_sg : {1u, 7u, 1024u}) {
         explainer.set_rows_per_simdgroup(rows_per_sg);
         for (const CompiledModel* active_model : {model.get(), private_model.get()}) {
-          std::vector<float> actual(6, -999.0f);
+          std::vector<float> actual(10, -999.0f);
           const ExplainTimings tm =
-              explainer.Explain(*active_model, x.data(), 3, actual.data());
+              explainer.Explain(*active_model, x.data(), 5, actual.data());
           Check(tm.dispatched, "non-empty model did not dispatch");
           CheckClose(actual, expected, 3e-6f, "Metal/reference mismatch");
         }
@@ -216,17 +220,17 @@ int main(int argc, char** argv) {
   explainer.set_accumulation_mode(AccumulationMode::kAtomic);
   explainer.set_threads_per_threadgroup(256);
   explainer.set_rows_per_simdgroup(7);
-  std::vector<float> atomic_full(6, -5.0f);
+  std::vector<float> atomic_full(10, -5.0f);
   explainer.set_atomic_tile_rows(0);
   const ExplainTimings atomic_full_tm =
-      explainer.Explain(*model, x.data(), 3, atomic_full.data());
-  Check(atomic_full_tm.atomic_tile_rows == 3 && atomic_full_tm.atomic_tiles == 1,
+      explainer.Explain(*model, x.data(), 5, atomic_full.data());
+  Check(atomic_full_tm.atomic_tile_rows == 5 && atomic_full_tm.atomic_tiles == 1,
         "full atomic dispatch metadata mismatch");
-  std::vector<float> atomic_tiled(6, -6.0f);
+  std::vector<float> atomic_tiled(10, -6.0f);
   explainer.set_atomic_tile_rows(2);
   const ExplainTimings atomic_tiled_tm =
-      explainer.Explain(*model, x.data(), 3, atomic_tiled.data());
-  Check(atomic_tiled_tm.atomic_tile_rows == 2 && atomic_tiled_tm.atomic_tiles == 2,
+      explainer.Explain(*model, x.data(), 5, atomic_tiled.data());
+  Check(atomic_tiled_tm.atomic_tile_rows == 2 && atomic_tiled_tm.atomic_tiles == 3,
         "tiled atomic dispatch metadata mismatch");
   Check(std::memcmp(atomic_full.data(), atomic_tiled.data(),
                     atomic_full.size() * sizeof(float)) == 0,
@@ -243,27 +247,27 @@ int main(int argc, char** argv) {
       model->deterministic_scratch_bytes_per_row());
   Check(explainer.deterministic_scratch_capacity_bytes() == 0,
         "lowering deterministic budget retained an oversized scratch buffer");
-  std::vector<float> tiled(6, -1.0f);
+  std::vector<float> tiled(10, -1.0f);
   const ExplainTimings tiled_tm =
-      explainer.Explain(*model, x.data(), 3, tiled.data());
-  Check(tiled_tm.deterministic_tile_rows == 1 && tiled_tm.deterministic_tiles == 3 &&
+      explainer.Explain(*model, x.data(), 5, tiled.data());
+  Check(tiled_tm.deterministic_tile_rows == 1 && tiled_tm.deterministic_tiles == 5 &&
             tiled_tm.deterministic_scratch_bytes == 2 * sizeof(float) &&
             tiled_tm.deterministic_scratch_capacity_bytes <=
                 explainer.deterministic_scratch_budget_bytes(),
         "deterministic one-row tiling metadata mismatch");
   CheckClose(tiled, expected, 3e-6f, "tiled deterministic/reference mismatch");
   for (int repeat = 0; repeat < 100; ++repeat) {
-    std::vector<float> repeated(6, -2.0f);
-    explainer.Explain(*model, x.data(), 3, repeated.data());
+    std::vector<float> repeated(10, -2.0f);
+    explainer.Explain(*model, x.data(), 5, repeated.data());
     Check(std::memcmp(repeated.data(), tiled.data(), tiled.size() * sizeof(float)) == 0,
           "deterministic output changed across identical runs");
   }
   explainer.set_deterministic_scratch_budget_bytes(
       Explainer::kDefaultDeterministicScratchBudgetBytes);
-  std::vector<float> single_tile(6, -3.0f);
+  std::vector<float> single_tile(10, -3.0f);
   const ExplainTimings single_tm =
-      explainer.Explain(*model, x.data(), 3, single_tile.data());
-  Check(single_tm.deterministic_tiles == 1 && single_tm.deterministic_tile_rows == 3,
+      explainer.Explain(*model, x.data(), 5, single_tile.data());
+  Check(single_tm.deterministic_tiles == 1 && single_tm.deterministic_tile_rows == 5,
         "deterministic default budget did not use one tile");
   Check(std::memcmp(single_tile.data(), tiled.data(), tiled.size() * sizeof(float)) == 0,
         "deterministic output changed with tile size");
@@ -273,8 +277,8 @@ int main(int argc, char** argv) {
   std::vector<float> one_row(2, -999.0f);
   explainer.Explain(*private_model, x.data() + 1, 1, one_row.data());
   CheckClose(one_row, {expected[2], expected[3]}, 3e-6f, "single-row reuse mismatch");
-  std::vector<float> actual(6, -123.0f);
-  explainer.Explain(*private_model, x.data(), 3, actual.data());
+  std::vector<float> actual(10, -123.0f);
+  explainer.Explain(*private_model, x.data(), 5, actual.data());
   CheckClose(actual, expected, 3e-6f, "repeated-call mismatch");
 
   std::cout << "ALL " << checks << " METAL HOST TESTS PASSED\n";

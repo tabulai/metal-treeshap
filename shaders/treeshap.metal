@@ -71,7 +71,12 @@ constant constexpr uint kSimdWidth = 32;
 
 inline bool EvaluateSplit(thread const PathElement& e, float x) {
   if (isnan(x)) return e.is_missing_branch != 0;
-  return x >= e.lower && x < e.upper;
+  if (x >= e.lower && x < e.upper) return true;
+  // +inf satisfies no half-open interval (inf < inf is false); route it like any value
+  // above every finite threshold: follow iff the interval extends to +infinity. Must match
+  // XgboostSplitCondition::EvaluateSplit in paths.h. Integer bit compare so the fast-math
+  // main library cannot fold the infinity test.
+  return as_type<uint>(x) == 0x7F800000u && as_type<uint>(e.upper) == 0x7F800000u;
 }
 
 // Contiguous sub-simdgroup [start, start+size): all shuffles rebased to `start`.

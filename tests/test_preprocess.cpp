@@ -300,6 +300,48 @@ static int TestReferenceMissingValues() {
   return 0;
 }
 
+static int TestInfinityRouting() {
+  // +inf satisfies no half-open interval (inf < inf is false); it must follow exactly the
+  // branch whose interval extends to +infinity, matching how XGBoost routes any value
+  // above every finite threshold. -inf needs no special case (-inf >= -inf holds on the
+  // leftmost interval) but is pinned here against regression alongside NaN.
+  const float inf = std::numeric_limits<float>::infinity();
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const XgboostSplitCondition left(-inf, 0.5f, true);
+  const XgboostSplitCondition right(0.5f, inf, false);
+  const XgboostSplitCondition interior(0.5f, 2.0f, false);
+  CHECK(right.EvaluateSplit(inf));
+  CHECK(!left.EvaluateSplit(inf));
+  CHECK(!interior.EvaluateSplit(inf));
+  CHECK(left.EvaluateSplit(-inf));
+  CHECK(!right.EvaluateSplit(-inf));
+  CHECK(!interior.EvaluateSplit(-inf));
+  CHECK(left.EvaluateSplit(nan));
+  CHECK(!right.EvaluateSplit(nan));
+
+  // End to end on the TestReferenceSingleSplit tree: +inf must reproduce the x = 1.0
+  // attributions (right leaf) and -inf the x = 0.0 attributions (left leaf), and both
+  // rows must keep local accuracy (contributions sum to the leaf prediction).
+  std::vector<PathElement> raw{
+      MakeElement(0, -1, 1.0, -1.0f),
+      MakeElement(0, 0, 2.0 / 5.0, -1.0f, -inf, 0.5f, true),
+      MakeElement(1, -1, 1.0, 0.0f),
+      MakeElement(1, 0, 3.0 / 5.0, 0.0f, 0.5f, inf, false),
+  };
+  auto pp = Preprocess(raw, 1, /*num_cols=*/1);
+  float x[2] = {inf, -inf};
+  DenseDataset X{x, 2, 1};
+  std::vector<double> phis(2 * 1 * 2, 0.0);
+  ShapReference(X, pp, 1, phis.data());
+  CHECK(std::abs(phis[IndexPhi(0, 1, 0, 1, 0)] - 0.4) < 1e-6);  // +inf row == x = 1.0 row
+  CHECK(std::abs(phis[IndexPhi(0, 1, 0, 1, 1)] + 0.4) < 1e-6);
+  CHECK(std::abs(phis[IndexPhi(1, 1, 0, 1, 0)] + 0.6) < 1e-6);  // -inf row == x = 0.0 row
+  CHECK(std::abs(phis[IndexPhi(1, 1, 0, 1, 1)] + 0.4) < 1e-6);
+  CHECK(std::abs(phis[0] + phis[1] - 0.0) < 1e-6);  // right leaf predicts 0
+  CHECK(std::abs(phis[2] + phis[3] + 1.0) < 1e-6);  // left leaf predicts -1
+  return 0;
+}
+
 static int TestStumpAndIntercept() {
   // A stump (single-leaf tree) is a root-only path: contributes only bias. With an
   // intercept passed through ShapReference, the bias column must be bias + intercept.
@@ -329,6 +371,8 @@ int main() {
   std::printf("reference single-split ok\n");
   if (TestReferenceMissingValues()) return 1;
   std::printf("reference missing-values ok\n");
+  if (TestInfinityRouting()) return 1;
+  std::printf("infinity routing ok\n");
   if (TestStumpAndIntercept()) return 1;
   std::printf("stump + intercept ok\n");
   std::printf("ALL OK (%d checks)\n", checks);

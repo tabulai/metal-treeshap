@@ -14,8 +14,9 @@ checks, at the project's stated 1e-3 gate:
 Coverage: regression with missing values, binary logistic, multiclass, multiclass with
 num_parallel_tree > 1 (tree_info mapping), DART (weight_drop), a 500-tree depth-8 stress
 model, XGBoost 3.3's flattened DART layout when available, an objective-link mini-suite
-(identity/logit/log objectives, empirically pinned), and a rejection check for objectives
-outside the tested allowlist.
+(identity/logit/log objectives, empirically pinned), a +/-inf routing check (pinned
+against a finite sentinel because DMatrix rejects infinities), and a rejection check for
+objectives outside the tested allowlist.
 
 THIS RUN IS NON-MUTATING BY DEFAULT (review requirement: verification must not regenerate
 its own oracle). Explicit flags:
@@ -266,6 +267,45 @@ def run_case(name, objective, n_features, n_train, n_test, depth, rounds,
     assert ok, f"{name}: mismatch vs xgboost (gate {TOL})"
 
 
+def check_infinity_routing():
+    """+/-inf feature values must follow the branch XGBoost takes for any value beyond
+    every finite threshold (fvalue < t false -> the [t, +inf) child, and vice versa).
+    xgboost's DMatrix rejects non-NaN infinities outright, so equivalence is pinned
+    against a huge finite sentinel that takes the same branch at every finite split."""
+    sentinel = np.float32(3.0e38)
+    X_train, y, X_test = make_data("reg:squarederror", 1500, 60, 6, 0.1, seed=21)
+    rng = np.random.RandomState(22)
+    pos = rng.rand(*X_test.shape) < 0.15
+    neg = ~pos & (rng.rand(*X_test.shape) < 0.15)
+    X_inf, X_sent = X_test.copy(), X_test.copy()
+    X_inf[pos], X_inf[neg] = np.inf, -np.inf
+    X_sent[pos], X_sent[neg] = sentinel, -sentinel
+    booster = xgb.train({"objective": "reg:squarederror", "max_depth": 4, "eta": 0.1,
+                         "tree_method": "hist", "seed": 21},
+                        xgb.DMatrix(X_train, label=y), 30)
+    em = extract_model(booster)
+    max_finite_bound = max(abs(b) for e in em.paths for b in (e.lower, e.upper)
+                           if np.isfinite(b))
+    assert max_finite_bound < float(sentinel), \
+        "sentinel does not dominate every finite threshold"
+    dsent = xgb.DMatrix(X_sent)
+    expected = booster.predict(dsent, pred_contribs=True)
+    margin = booster.predict(dsent, output_margin=True)
+    with tempfile.TemporaryDirectory() as td:
+        paths_csv, x_csv = os.path.join(td, "p.csv"), os.path.join(td, "x.csv")
+        out64, out32 = os.path.join(td, "o64.csv"), os.path.join(td, "o32.csv")
+        write_paths_csv(em.paths, paths_csv)
+        np.savetxt(x_csv, X_inf, delimiter=",", fmt="%.9g")
+        run_cli(paths_csv, x_csv, 1, out64, out32, em.intercepts)
+        phis64 = np.loadtxt(out64, delimiter=",")
+    err = float(np.max(np.abs(phis64 - expected)))
+    margin_err = float(np.max(np.abs(phis64.sum(axis=1) - margin)))
+    ok = err < TOL and margin_err < TOL
+    print(f"[{'PASS' if ok else 'FAIL'}] infinity-routing (+/-inf vs finite sentinel): "
+          f"max|phi-xgb|={err:.3e} sum-to-margin={margin_err:.3e}")
+    assert ok, f"infinity-routing: mismatch vs xgboost sentinel (gate {TOL})"
+
+
 def check_unknown_objective_rejected() -> dict[str, str]:
     """Objectives outside the tested allowlist must be rejected, not mis-linked."""
     rng = np.random.RandomState(0)
@@ -381,6 +421,7 @@ if __name__ == "__main__":
     run_case("obj-quantile", "reg:quantileerror", seed=19,
              extra_params={"quantile_alpha": 0.5}, **mini)
 
+    check_infinity_routing()
     objective_rejection = check_unknown_objective_rejected()
     if WRITE_RESULTS:
         write_results_md(objective_rejection)

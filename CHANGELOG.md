@@ -3,6 +3,19 @@
 All notable changes to MetalTreeShap are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- `+inf` feature values now follow the branch XGBoost takes for any value above every
+  finite threshold. Previously `+inf` satisfied no half-open split interval
+  (`inf < inf` is false) in both the CPU reference and the Metal kernel, so affected rows
+  silently produced non-additive attributions that matched no model prediction; the
+  CPU/GPU differential suite could not catch it because both sides agreed. The Metal
+  kernel uses an integer bit compare so fast math cannot fold the infinity test. Pinned by
+  unit, Metal-differential, and sentinel-based golden tests (`-inf` and NaN routing were
+  already correct and are now pinned too).
+
 ## 0.1.0 — 2026-07-12
 
 Initial alpha release for Apple Silicon Macs.

@@ -13,6 +13,11 @@
 namespace metal_treeshap {
 
 // Feature values in [lower, upper) follow this path element; NaN follows it iff is_missing_branch.
+// +inf satisfies no half-open interval (inf < inf is false), so it is routed explicitly: it
+// follows the element iff the interval extends to +infinity — the branch XGBoost takes for any
+// value above every finite threshold. (-inf needs no special case: -inf >= -inf holds on the
+// leftmost interval. This deliberately diverges from upstream GPUTreeShap, which inherits the
+// silent no-branch behavior.)
 struct XgboostSplitCondition {
   float feature_lower_bound = -std::numeric_limits<float>::infinity();
   float feature_upper_bound = std::numeric_limits<float>::infinity();
@@ -26,7 +31,9 @@ struct XgboostSplitCondition {
 
   bool EvaluateSplit(float x) const {
     if (std::isnan(x)) return is_missing_branch;
-    return x >= feature_lower_bound && x < feature_upper_bound;
+    if (x >= feature_lower_bound && x < feature_upper_bound) return true;
+    return x == std::numeric_limits<float>::infinity() &&
+           feature_upper_bound == std::numeric_limits<float>::infinity();
   }
 
   // Combine duplicate features on one path: intersect intervals, AND missing branches.
