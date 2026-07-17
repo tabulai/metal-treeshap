@@ -5,6 +5,7 @@ cmake-build-*/
 *.air
 *.metallib
 !tests/fixtures/**/*.metallib
+dist/
 
 # python
 __pycache__/
