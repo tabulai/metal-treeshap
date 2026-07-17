@@ -70,7 +70,11 @@ struct ReductionCell {        // matches DeterministicReductionCell in determini
 constant constexpr uint kSimdWidth = 32;
 
 inline bool EvaluateSplit(thread const PathElement& e, float x) {
-  if (isnan(x)) return e.is_missing_branch != 0;
+  // NaN routes to the missing branch. Integer bit test rather than isnan(): this library
+  // compiles with fast math, whose no-NaN assumption is demonstrably active (x != x folds
+  // to false under the default compile options), and isnan() survives only through builtin
+  // special-casing that a future OS Metal compiler need not preserve.
+  if ((as_type<uint>(x) & 0x7FFFFFFFu) > 0x7F800000u) return e.is_missing_branch != 0;
   if (x >= e.lower && x < e.upper) return true;
   // +inf satisfies no half-open interval (inf < inf is false); route it like any value
   // above every finite threshold: follow iff the interval extends to +infinity. Must match

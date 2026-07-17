@@ -191,6 +191,30 @@ if(APPLE)
     fixture_metal_atomic_tiled_rps7
     PROPERTIES ENVIRONMENT
                "METAL_TREESHAP_KERNEL=${CMAKE_CURRENT_SOURCE_DIR}/shaders/treeshap.metal")
+
+  # The compiled-metallib loader (kMetallibFile plus the treeshap_precise.metallib
+  # sibling contract) must not regress silently: every test above pins the .metal source
+  # and exercises only runtime compilation. When the offline toolchain can build the
+  # metallibs, run the all-fixture differential through them too — atomic for the fast
+  # library, deterministic for the no-fast-math serial reducer it loads from the sibling.
+  if(METAL_TOOLCHAIN_OK)
+    add_test(NAME fixture_metal_metallib_rps7
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_fixture.py
+                     $<TARGET_FILE:reference_cli>
+                     --metal-cli $<TARGET_FILE:metal_cli>
+                     --metal-rows-per-simdgroup 7)
+    add_test(NAME fixture_metal_metallib_deterministic_rps7
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_fixture.py
+                     $<TARGET_FILE:reference_cli>
+                     --metal-cli $<TARGET_FILE:metal_cli>
+                     --metal-rows-per-simdgroup 7
+                     --metal-accumulation deterministic)
+    set_tests_properties(
+      fixture_metal_metallib_rps7 fixture_metal_metallib_deterministic_rps7
+      PROPERTIES ENVIRONMENT "METAL_TREESHAP_KERNEL=${METALLIB}")
+  endif()
 endif()
 
 # Portable fixture regression (needs python3 + numpy; no xgboost).

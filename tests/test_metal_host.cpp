@@ -88,6 +88,16 @@ int main(int argc, char** argv) {
     return 2;
   }
 
+  // The metallib loader must reject a missing file with an exception (the happy path,
+  // including the _precise sibling load, runs via the fixture_metal_metallib CTests on
+  // machines with the offline Metal toolchain).
+  Throws(
+      [] {
+        Explainer missing_lib("/nonexistent/treeshap.metallib",
+                              Explainer::LibraryKind::kMetallibFile);
+      },
+      "nonexistent metallib accepted");
+
   Explainer explainer(ReadFile(argv[1]), Explainer::LibraryKind::kSourceString);
   Throws([&] { explainer.set_rows_per_simdgroup(0); }, "zero tuning value accepted");
   Throws([&] { explainer.set_threads_per_threadgroup(31); },

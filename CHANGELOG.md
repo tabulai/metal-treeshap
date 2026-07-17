@@ -15,8 +15,21 @@ All notable changes to MetalTreeShap are documented here. The project follows
   `MetalTreeExplainer.from_xgboost` on the 500-tree stress model from 1.30 s to 1.09 s.
   Output order is unchanged (pinned by an exact-equivalence regression test).
 
+### Added
+
+- CTest coverage for the compiled-metallib loader: on machines with the offline Metal
+  toolchain, the all-fixture differential now also runs through `treeshap.metallib`
+  (atomic) and its no-fast-math `treeshap_precise.metallib` sibling (deterministic),
+  which previously had no test anywhere; a unit test pins the missing-file error path.
+
 ### Fixed
 
+- Missing-value routing in the Metal kernel no longer depends on `isnan()` surviving
+  fast math. The recurrence kernels compile with fast math, whose no-NaN assumption is
+  demonstrably active (`x != x` folds to false under the default options); `isnan()`
+  currently works only because the builtin is special-cased, which a future OS Metal
+  compiler need not preserve. The NaN test is now an integer bit compare that no float
+  math mode can fold.
 - The CLI loaders now require the documented `paths.csv` header row instead of blindly
   discarding the first line. A headerless file — a plausible mistake, since `X.csv` in
   the same command is headerless — used to lose its first path element silently and exit
