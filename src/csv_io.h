@@ -116,6 +116,16 @@ inline std::vector<PathElement> LoadPaths(const std::string& file) {
   std::vector<PathElement> paths;
   std::string line;
   if (!std::getline(in, line)) throw std::runtime_error("empty paths file: " + file);
+  // Require the documented header row rather than discarding the first line blindly:
+  // X.csv in the same CLI contract is headerless, so a headerless paths.csv would
+  // otherwise lose its first element silently and exit 0 with wrong attributions.
+  const std::string first_column = TrimToken(line.substr(0, line.find(',')));
+  if (first_column != "path_idx") {
+    throw std::runtime_error(
+        "paths file " + file + " must start with the header row 'path_idx,feature_idx,"
+        "group,lower,upper,is_missing,zero_fraction,v' (first column read: '" +
+        first_column + "')");
+  }
   while (std::getline(in, line)) {
     if (line.empty()) continue;
     auto f = SplitLine(line);

@@ -67,6 +67,24 @@ int main() {
     Check(paths[1].feature_idx == 0 && paths[1].zero_fraction == 0.5,
           "valid path values wrong");
 
+    // A headerless file must be rejected, not have its first data row silently swallowed
+    // as if it were the header (X.csv in the same CLI contract is headerless, so omitting
+    // the paths header is a plausible mistake that used to corrupt results with exit 0).
+    const fs::path headerless = dir / "headerless.csv";
+    Write(headerless, "0,-1,0,-inf,inf,1,1,2\n0,0,0,-inf,3,0,0.5,2\n");
+    Throws([&] { (void)csv::LoadPaths(headerless.string()); }, "headerless paths accepted");
+
+    const fs::path wrong_header = dir / "wrong_header.csv";
+    Write(wrong_header, "foo,bar\n0,-1,0,-inf,inf,1,1,2\n");
+    Throws([&] { (void)csv::LoadPaths(wrong_header.string()); },
+           "arbitrary first line accepted as header");
+
+    // CRLF line endings must not defeat the header check or the numeric parsers.
+    const fs::path crlf = dir / "crlf.csv";
+    Write(crlf, "path_idx,feature_idx,group,lower,upper,is_missing,zero_fraction,v\r\n"
+                "0,-1,0,-inf,inf,1,1,2\r\n");
+    Check(csv::LoadPaths(crlf.string()).size() == 1, "CRLF paths file rejected");
+
     const fs::path garbage = dir / "garbage.csv";
     Write(garbage, header + "0,-1,0,-inf,inf,1,1x,2\n");
     Throws([&] { (void)csv::LoadPaths(garbage.string()); }, "garbage numeric field accepted");

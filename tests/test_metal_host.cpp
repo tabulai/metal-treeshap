@@ -281,6 +281,22 @@ int main(int argc, char** argv) {
   explainer.Explain(*private_model, x.data(), 5, actual.data());
   CheckClose(actual, expected, 3e-6f, "repeated-call mismatch");
 
+  // A rejected Explain must throw, not abort: undersized deterministic budgets used to
+  // throw between computeCommandEncoder() and endEncoding(), and draining the pool then
+  // released the un-ended encoder — a Metal process abort rather than a catchable error.
+  explainer.set_deterministic_scratch_budget_bytes(1);  // below one row of partials
+  Throws(
+      [&] {
+        std::vector<float> out(10, 0.0f);
+        (void)explainer.Explain(*model, x.data(), 5, out.data());
+      },
+      "undersized deterministic scratch budget accepted by Explain");
+  explainer.set_deterministic_scratch_budget_bytes(
+      Explainer::kDefaultDeterministicScratchBudgetBytes);
+  std::vector<float> after_reject(10, -7.0f);
+  explainer.Explain(*model, x.data(), 5, after_reject.data());
+  CheckClose(after_reject, expected, 3e-6f, "post-rejection reuse mismatch");
+
   std::cout << "ALL " << checks << " METAL HOST TESTS PASSED\n";
   return 0;
 }

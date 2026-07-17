@@ -7,6 +7,19 @@ All notable changes to MetalTreeShap are documented here. The project follows
 
 ### Fixed
 
+- The CLI loaders now require the documented `paths.csv` header row instead of blindly
+  discarding the first line. A headerless file — a plausible mistake, since `X.csv` in
+  the same command is headerless — used to lose its first path element silently and exit
+  0 with numerically wrong attributions; it is now rejected with an error naming the
+  expected header.
+- Rejected `Explain` calls now raise a catchable exception instead of aborting the
+  process. Oversized dispatches, undersized deterministic scratch budgets, and scratch
+  allocation failures previously threw between `computeCommandEncoder()` and
+  `endEncoding()`; draining the autorelease pool during unwinding then released the
+  un-ended encoder and tripped Metal's hard "Command encoder released without
+  endEncoding" abort — killing the host process, including the Python interpreter behind
+  the wheel. All throwing validation and allocation now runs before the encoder opens,
+  and a new `EndEncodingGuard` closes the encoder during unwinding as defense in depth.
 - `+inf` feature values now follow the branch XGBoost takes for any value above every
   finite threshold. Previously `+inf` satisfied no half-open split interval
   (`inf < inf` is false) in both the CPU reference and the Metal kernel, so affected rows

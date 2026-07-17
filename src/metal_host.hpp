@@ -24,6 +24,9 @@
 //     before any Metal call (grid coordinates are 32-bit in MSL; oversized workloads are
 //     rejected with a "batch rows" error rather than silently wrapped — matching the
 //     shader's 64-bit work-count arithmetic).
+//   * No-throw encoding window: every check or allocation that can throw runs before the
+//     compute encoder opens, and EndEncodingGuard ends the encoder during unwinding —
+//     releasing an un-ended encoder is a Metal process abort, not a catchable error.
 //   * Input zero-copy: newBuffer(bytes:length:options:) COPIES its input; only
 //     bytesNoCopy wraps caller memory (page-aligned pointer AND page-multiple length) —
 //     used opportunistically, else a persistent staging copy.
@@ -129,6 +132,26 @@ class ScopedPool {
 
  private:
   NS::AutoreleasePool* pool_;
+};
+
+// Ends a command encoder on scope exit unless End() already ran. Releasing an un-ended
+// encoder — e.g. the autorelease pool draining while an exception unwinds — is a Metal
+// process abort, not a catchable error, so encoding must be closed on every exit path.
+class EndEncodingGuard {
+ public:
+  explicit EndEncodingGuard(MTL::CommandEncoder* enc) : enc_(enc) {}
+  ~EndEncodingGuard() {
+    if (enc_) enc_->endEncoding();
+  }
+  void End() {
+    enc_->endEncoding();
+    enc_ = nullptr;
+  }
+  EndEncodingGuard(const EndEncodingGuard&) = delete;
+  EndEncodingGuard& operator=(const EndEncodingGuard&) = delete;
+
+ private:
+  MTL::CommandEncoder* enc_;
 };
 
 // Owns an NS/MTL object during construction; releases it unless Transfer()red. Makes
@@ -604,13 +627,12 @@ class Explainer {
     EnsureCapacity(&phis_buf_, phis_bytes);
     fill_bias(static_cast<float*>(phis_buf_->contents()));
 
-    // ---- Encode + dispatch ----
-    const auto te0 = chr::steady_clock::now();
-    MTL::CommandBuffer* cmd = queue_->commandBuffer();
-    if (!cmd) throw std::runtime_error("failed to create command buffer");
-    MTL::ComputeCommandEncoder* enc = cmd->computeCommandEncoder();
-    if (!enc) throw std::runtime_error("failed to create compute encoder");
-
+    // ---- Dispatch geometry: every throwing check runs BEFORE the encoder opens ----
+    // A throw while a command encoder is open must not unwind: the autorelease pool
+    // would release the un-ended encoder and Metal aborts the whole process instead of
+    // surfacing the exception. Tiling math, 32-bit dispatch validation, and scratch
+    // allocation therefore all happen here; EndEncodingGuard below keeps any future
+    // encoding-window throw fail-safe.
     constexpr uint64_t kMaxGridThreads =
         static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1;
     const uint64_t simdgroups_per_tg = threads_per_tg / 32;
@@ -627,7 +649,53 @@ class Explainer {
       return groups;
     };
 
-    if (accumulation != AccumulationMode::kDeterministic) {
+    const bool deterministic = accumulation == AccumulationMode::kDeterministic;
+    size_t tile_rows = num_rows;
+    size_t det_partials = 0, det_active_cells = 0;
+    if (!deterministic) {
+      const bool tile_atomic = accumulation == AccumulationMode::kAtomic;
+      if (tile_atomic && atomic_tile_rows_requested != 0) {
+        tile_rows = std::min(atomic_tile_rows_requested, num_rows);
+      }
+      if (tile_atomic) {
+        t.atomic_tile_rows = tile_rows;
+        t.atomic_tiles = (num_rows + tile_rows - 1) / tile_rows;
+      }
+    } else {
+      det_partials = model.deterministic_num_partials();
+      det_active_cells = model.deterministic_num_active_cells();
+      if (det_partials == 0 || det_active_cells == 0 || !model.deterministic_slots() ||
+          !model.deterministic_cells()) {
+        throw std::runtime_error("compiled model is missing deterministic metadata");
+      }
+      const size_t bytes_per_row = model.deterministic_scratch_bytes_per_row();
+      tile_rows = DeterministicTileRows(
+          num_rows, bytes_per_row, det_active_cells, model.num_bins(), rows_per_sg,
+          threads_per_tg, deterministic_scratch_budget,
+          static_cast<size_t>(device_->maxBufferLength()));
+      const size_t scratch_bytes = detail_host::CheckedMul(
+          tile_rows, bytes_per_row, "deterministic scratch bytes");
+      EnsureCapacity(&deterministic_partials_buf_, scratch_bytes,
+                     MTL::ResourceStorageModePrivate);
+      t.deterministic_scratch_bytes = scratch_bytes;
+      t.deterministic_scratch_capacity_bytes = deterministic_partials_buf_->length();
+      t.deterministic_tile_rows = tile_rows;
+      t.deterministic_tiles = (num_rows + tile_rows - 1) / tile_rows;
+    }
+    // The first tile is the largest and the dispatch bound is monotone in rows, so this
+    // one check rejects oversized workloads for every tile (deterministic tiles are
+    // additionally pre-bounded by DeterministicTileRows' own 32-bit limits).
+    (void)threadgroup_count(tile_rows);
+
+    // ---- Encode + dispatch (no throw sites while the encoder is open) ----
+    const auto te0 = chr::steady_clock::now();
+    MTL::CommandBuffer* cmd = queue_->commandBuffer();
+    if (!cmd) throw std::runtime_error("failed to create command buffer");
+    MTL::ComputeCommandEncoder* enc = cmd->computeCommandEncoder();
+    if (!enc) throw std::runtime_error("failed to create compute encoder");
+    detail_host::EndEncodingGuard encoding(enc);
+
+    if (!deterministic) {
       enc->setComputePipelineState(accumulation == AccumulationMode::kSimdgroup
                                        ? simdgroup_pso_
                                        : pso_);
@@ -635,15 +703,6 @@ class Explainer {
       enc->setBuffer(model.elements(), 0, 1);
       enc->setBuffer(model.segments(), 0, 2);
       enc->setBuffer(phis_buf_, 0, 3);
-      const bool tile_atomic = accumulation == AccumulationMode::kAtomic;
-      const size_t tile_rows =
-          !tile_atomic || atomic_tile_rows_requested == 0
-              ? num_rows
-              : std::min(atomic_tile_rows_requested, num_rows);
-      if (tile_atomic) {
-        t.atomic_tile_rows = tile_rows;
-        t.atomic_tiles = (num_rows + tile_rows - 1) / tile_rows;
-      }
       for (size_t row_offset = 0; row_offset < num_rows; row_offset += tile_rows) {
         const size_t rows = std::min(tile_rows, num_rows - row_offset);
         KernelParams params{static_cast<uint32_t>(rows),
@@ -656,27 +715,6 @@ class Explainer {
                                   MTL::Size::Make(threads_per_tg, 1, 1));
       }
     } else {
-      const size_t partials = model.deterministic_num_partials();
-      const size_t active_cells = model.deterministic_num_active_cells();
-      if (partials == 0 || active_cells == 0 || !model.deterministic_slots() ||
-          !model.deterministic_cells()) {
-        throw std::runtime_error("compiled model is missing deterministic metadata");
-      }
-      const size_t bytes_per_row = model.deterministic_scratch_bytes_per_row();
-      const size_t tile_rows = DeterministicTileRows(
-          num_rows, bytes_per_row, active_cells, model.num_bins(), rows_per_sg,
-          threads_per_tg, deterministic_scratch_budget,
-          static_cast<size_t>(device_->maxBufferLength()));
-
-      const size_t scratch_bytes = detail_host::CheckedMul(
-          tile_rows, bytes_per_row, "deterministic scratch bytes");
-      EnsureCapacity(&deterministic_partials_buf_, scratch_bytes,
-                     MTL::ResourceStorageModePrivate);
-      t.deterministic_scratch_bytes = scratch_bytes;
-      t.deterministic_scratch_capacity_bytes = deterministic_partials_buf_->length();
-      t.deterministic_tile_rows = tile_rows;
-      t.deterministic_tiles = (num_rows + tile_rows - 1) / tile_rows;
-
       size_t row_offset = 0;
       while (row_offset < num_rows) {
         const size_t rows = std::min(tile_rows, num_rows - row_offset);
@@ -684,7 +722,8 @@ class Explainer {
             static_cast<uint32_t>(rows), static_cast<uint32_t>(row_offset),
             static_cast<uint32_t>(num_cols), static_cast<uint32_t>(num_groups),
             static_cast<uint32_t>(model.num_bins()), rows_per_sg,
-            static_cast<uint32_t>(partials), static_cast<uint32_t>(active_cells)};
+            static_cast<uint32_t>(det_partials),
+            static_cast<uint32_t>(det_active_cells)};
 
         enc->setComputePipelineState(partial_pso_);
         enc->setBuffer(x_buf, 0, 0);
@@ -702,8 +741,8 @@ class Explainer {
         enc->setBuffer(model.deterministic_cells(), 0, 1);
         enc->setBuffer(phis_buf_, 0, 2);
         enc->setBytes(&params, sizeof(params), 3);
-        const size_t reduction_work = detail_host::CheckedMul(
-            rows, active_cells, "deterministic reduction work");
+        // Cannot wrap: DeterministicTileRows capped tile_rows at UINT32_MAX / cells.
+        const size_t reduction_work = rows * det_active_cells;
         enc->dispatchThreads(MTL::Size::Make(reduction_work, 1, 1),
                              MTL::Size::Make(threads_per_tg, 1, 1));
         row_offset += rows;
@@ -712,7 +751,7 @@ class Explainer {
         }
       }
     }
-    enc->endEncoding();
+    encoding.End();
     cmd->commit();
     t.encode_s = chr::duration<double>(chr::steady_clock::now() - te0).count();
 
