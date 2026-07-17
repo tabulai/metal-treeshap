@@ -256,6 +256,51 @@ static int TestSegmentsAndLayout() {
   return 0;
 }
 
+// The decorated SortPathsByBin and the run-length GetPathLengths fast path must agree
+// exactly with their straightforward definitions (comparator-time map lookups / naive
+// counting) on a randomized multi-group model.
+static int TestSortAndLengthsEquivalence() {
+  std::mt19937 rng(123);
+  std::uniform_int_distribution<int> depth_dist(1, 12);
+  std::uniform_int_distribution<int> group_dist(0, 2);
+  std::vector<PathElement> raw;
+  for (uint64_t p = 0; p < 700; p++) {
+    const int depth = depth_dist(rng);
+    const int group = group_dist(rng);
+    const float v = static_cast<float>(p % 7) - 3.0f;
+    raw.push_back(MakeElement(p * 3, -1, 1.0, v, -1e30f, 1e30f, true, group));
+    for (int f = 0; f < depth; f++) {  // repeated features exercise dedup merging
+      raw.push_back(MakeElement(p * 3, f % 8, 0.7, v, -1e30f, 1e30f, true, group));
+    }
+  }
+  auto dd = DeduplicatePaths(raw);
+
+  std::map<uint64_t, int> naive_lengths;
+  for (const auto& e : dd) naive_lengths[e.path_idx]++;
+  CHECK(GetPathLengths(dd) == naive_lengths);
+
+  const auto bin_map = BFDBinPacking(naive_lengths);
+  auto decorated = dd;
+  SortPathsByBin(&decorated, bin_map);
+  auto reference = dd;
+  std::sort(reference.begin(), reference.end(),
+            [&](const PathElement& a, const PathElement& b) {
+              const size_t a_bin = bin_map.at(a.path_idx), b_bin = bin_map.at(b.path_idx);
+              if (a_bin != b_bin) return a_bin < b_bin;
+              if (a.path_idx != b.path_idx) return a.path_idx < b.path_idx;
+              return a.feature_idx < b.feature_idx;
+            });
+  CHECK(decorated.size() == reference.size());
+  for (size_t i = 0; i < decorated.size(); i++) {
+    CHECK(decorated[i].path_idx == reference[i].path_idx);
+    CHECK(decorated[i].feature_idx == reference[i].feature_idx);
+    CHECK(decorated[i].group == reference[i].group);
+    CHECK(decorated[i].v == reference[i].v);
+    CHECK(decorated[i].zero_fraction == reference[i].zero_fraction);
+  }
+  return 0;
+}
+
 static int TestReferenceSingleSplit() {
   // Tree: f0 < 0.5 -> leaf -1 (cover 2), else leaf 0 (cover 3). Total cover 5.
   // E[f] = (2*(-1) + 3*0)/5 = -0.4. For x = 1.0: prediction 0, so phi_f0 = 0.4, bias = -0.4.
@@ -367,6 +412,8 @@ int main() {
   std::printf("raw-laundering validation ok\n");
   if (TestSegmentsAndLayout()) return 1;
   std::printf("segments/layout ok\n");
+  if (TestSortAndLengthsEquivalence()) return 1;
+  std::printf("sort/lengths equivalence ok\n");
   if (TestReferenceSingleSplit()) return 1;
   std::printf("reference single-split ok\n");
   if (TestReferenceMissingValues()) return 1;

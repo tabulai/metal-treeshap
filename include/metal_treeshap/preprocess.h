@@ -46,7 +46,16 @@ inline std::vector<PathElement> DeduplicatePaths(std::vector<PathElement> paths)
 // Returns map keyed by path_idx (path ids need not be dense).
 inline std::map<uint64_t, int> GetPathLengths(const std::vector<PathElement>& paths) {
   std::map<uint64_t, int> lengths;
-  for (const auto& e : paths) lengths[e.path_idx]++;
+  for (const auto& e : paths) {
+    // Dedup output is path-sorted, so the current run's path is the map's maximum key:
+    // bump it in O(1) instead of tree-searching per element. Unsorted input still takes
+    // the general branch and counts identically.
+    if (!lengths.empty() && std::prev(lengths.end())->first == e.path_idx) {
+      ++std::prev(lengths.end())->second;
+    } else {
+      lengths[e.path_idx]++;
+    }
+  }
   return lengths;
 }
 
@@ -260,13 +269,43 @@ inline BinMap NFBinPacking(const LengthMap& lengths, int bin_limit = kBinLimit) 
 
 // Sort elements by (bin, path_idx, feature_idx) so each bin's elements are contiguous and each
 // path's elements are contiguous within its bin, root (feature -1) first. Mirrors SortPaths.
+// Decorate-sort-undecorate: resolving each element's bin once and sorting flat keys replaced
+// a comparator doing two O(log paths) map walks per comparison, which dominated Preprocess
+// at stress scale (~11x faster sort, identical order — (path_idx, feature_idx) is unique
+// after dedup, and the original index breaks any malformed ties deterministically).
 inline void SortPathsByBin(std::vector<PathElement>* paths, const BinMap& bin_map) {
-  std::sort(paths->begin(), paths->end(), [&](const PathElement& a, const PathElement& b) {
-    size_t a_bin = bin_map.at(a.path_idx), b_bin = bin_map.at(b.path_idx);
-    if (a_bin != b_bin) return a_bin < b_bin;
+  struct SortKey {
+    size_t bin;
+    uint64_t path_idx;
+    int64_t feature_idx;
+    size_t index;
+  };
+  std::vector<SortKey> keys;
+  keys.reserve(paths->size());
+  bool have_prev = false;
+  uint64_t prev_path = 0;
+  size_t prev_bin = 0;
+  for (size_t i = 0; i < paths->size(); ++i) {
+    const PathElement& e = (*paths)[i];
+    // Consecutive elements usually share a path (dedup output is path-sorted); reuse the
+    // previous lookup so the map is walked once per path, not once per element.
+    if (!have_prev || e.path_idx != prev_path) {
+      prev_bin = bin_map.at(e.path_idx);
+      prev_path = e.path_idx;
+      have_prev = true;
+    }
+    keys.push_back(SortKey{prev_bin, e.path_idx, e.feature_idx, i});
+  }
+  std::sort(keys.begin(), keys.end(), [](const SortKey& a, const SortKey& b) {
+    if (a.bin != b.bin) return a.bin < b.bin;
     if (a.path_idx != b.path_idx) return a.path_idx < b.path_idx;
-    return a.feature_idx < b.feature_idx;
+    if (a.feature_idx != b.feature_idx) return a.feature_idx < b.feature_idx;
+    return a.index < b.index;
   });
+  std::vector<PathElement> sorted;
+  sorted.reserve(keys.size());
+  for (const SortKey& key : keys) sorted.push_back((*paths)[key.index]);
+  *paths = std::move(sorted);
 }
 
 // Convert per-bin size_t counts to the uint32 prefix offsets consumed by the shader.  Kept

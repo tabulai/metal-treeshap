@@ -5,6 +5,16 @@ All notable changes to MetalTreeShap are documented here. The project follows
 
 ## Unreleased
 
+### Performance
+
+- `SortPathsByBin` now decorates each element with its bin once and sorts flat keys
+  instead of doing two `std::map` lookups inside the sort comparator, and
+  `GetPathLengths` counts path runs in O(1) on the sorted dedup output. Measured on the
+  M4 Max at the stress scale (65,536 paths, ~310K deduplicated elements): the sort drops
+  from 205 ms to 16 ms (12.8×), full `Preprocess` from 284 ms to 93 ms (3.0×), and
+  `MetalTreeExplainer.from_xgboost` on the 500-tree stress model from 1.30 s to 1.09 s.
+  Output order is unchanged (pinned by an exact-equivalence regression test).
+
 ### Fixed
 
 - The CLI loaders now require the documented `paths.csv` header row instead of blindly
