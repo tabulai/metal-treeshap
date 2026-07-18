@@ -30,11 +30,9 @@ def build_paths():
     leaf_vals = [((d * 37) % 19 - 9) / 10.0 for d in range(DEPTH + 1)]  # deterministic
     rows = []  # csv rows
     spine = []  # (feature, zero_fraction_right, default_left) along the right spine
-    cover = 1.0
     for d in range(DEPTH):
         frac = 1e-4 if d % 5 == 0 else 0.3
         spine.append((d, 1.0 - frac, frac, (d % 2) == 0))
-        cover *= 1.0 - frac
 
     # Path p (p = 0..DEPTH-1): follows the right spine to depth p, then LEFT to a leaf.
     # Path DEPTH: the full right spine to the deepest leaf (32 elements with root).
@@ -81,6 +79,8 @@ def build_X():
 
 
 def main():
+    if len(sys.argv) < 2:
+        raise SystemExit("usage: make_deep_fixture.py <reference_cli> [out_dir]")
     cli = sys.argv[1]
     out_dir = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tests", "fixtures",

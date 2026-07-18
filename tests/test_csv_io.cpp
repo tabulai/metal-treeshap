@@ -51,6 +51,10 @@ int main() {
     Check(csv::ParseU64(" 42 ", "value") == 42, "trimmed uint parse failed");
     Check(csv::ParseI64("-7", "value") == -7, "signed parse failed");
     Check(std::isnan(csv::ParseFloat("nan", "value")), "NaN matrix parse failed");
+    // Subnormals set ERANGE on macOS while parsing correctly; only overflow is fatal.
+    Check(csv::ParseFloat("1e-42", "value") > 0.0f, "valid subnormal float rejected");
+    Check(csv::ParseDouble("1e-320", "value") > 0.0, "valid subnormal double rejected");
+    Throws([] { (void)csv::ParseFloat("1e39", "value"); }, "float overflow accepted");
     Throws([] { (void)csv::ParseU64("-1", "value"); }, "negative uint accepted");
     Throws([] { (void)csv::ParseU64("1garbage", "value"); }, "numeric suffix accepted");
     Throws([] { (void)csv::ParseU32("4294967296", "value"); }, "uint32 overflow accepted");
@@ -110,7 +114,8 @@ int main() {
     Throws([&] { (void)csv::LoadPaths(bad_bool.string()); }, "non-boolean missing flag accepted");
 
     const fs::path matrix = dir / "X.csv";
-    Write(matrix, "1,nan\r\n2,3\r\n");
+    // CRLF data rows plus a CRLF blank line, which must be skipped like an LF blank.
+    Write(matrix, "1,nan\r\n\r\n2,3\r\n");
     size_t rows = 0, cols = 0;
     const auto values = csv::LoadMatrix(matrix.string(), &rows, &cols);
     Check(rows == 2 && cols == 2 && values.size() == 4, "valid matrix shape wrong");

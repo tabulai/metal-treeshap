@@ -213,6 +213,128 @@ class MetalTreeExplainerTests(unittest.TestCase):
                 num_features=31,
             )
 
+    def test_raw_json_model_sources(self) -> None:
+        # save_raw("json") output (bytes/bytearray) and its decoded text are model
+        # documents, not filenames; both must load like the parsed dict does.
+        fixture = ROOT / "tests" / "fixtures" / "regression-missing"
+        X = np.loadtxt(fixture / "X.csv", delimiter=",", dtype=np.float32, ndmin=2)[:4]
+        text = (fixture / "model.json").read_text(encoding="utf-8")
+        # Deterministic mode: bitwise-equal outputs across explainer instances, so the
+        # equality below proves the sources parse to the identical model.
+        baseline = MetalTreeExplainer.from_xgboost(
+            json.loads(text), accumulation="deterministic"
+        ).explain(X)
+        for source in (text, text.encode("utf-8"), bytearray(text.encode("utf-8"))):
+            with self.subTest(source=type(source).__name__):
+                actual = MetalTreeExplainer.from_xgboost(
+                    source, accumulation="deterministic"
+                ).explain(X)
+                np.testing.assert_array_equal(actual, baseline)
+
+    def test_validation_errors_cross_the_binding(self) -> None:
+        fixture = ROOT / "tests" / "fixtures" / "deep31"
+        records = load_path_records(fixture / "paths.csv")
+        kwargs = dict(num_groups=1, num_features=31, intercepts=[0.5])
+        with self.assertRaisesRegex(ValueError, "one value per output group"):
+            MetalTreeExplainer.from_paths(records, num_groups=1, num_features=31,
+                                          intercepts=[0.5, 0.5])
+        with self.assertRaisesRegex(ValueError, "accumulation"):
+            MetalTreeExplainer.from_paths(records, accumulation="bogus", **kwargs)
+        with self.assertRaisesRegex(ValueError, "threads_per_threadgroup"):
+            MetalTreeExplainer.from_paths(records, threads_per_threadgroup=96, **kwargs)
+        with self.assertRaisesRegex(ValueError, "deterministic_scratch_mib"):
+            MetalTreeExplainer.from_paths(records, deterministic_scratch_mib=0, **kwargs)
+        bad_bounds = [dict(record) for record in records]
+        bad_bounds[1]["lower"] = float("nan")
+        with self.assertRaisesRegex(ValueError, "non-NaN"):
+            MetalTreeExplainer.from_paths(bad_bounds, **kwargs)
+        with tempfile.TemporaryDirectory() as directory:
+            fake = Path(directory) / "fake.metallib"
+            fake.write_bytes(b"not a metallib")
+            with self.assertRaisesRegex(RuntimeError, "failed to load metallib"):
+                MetalTreeExplainer.from_paths(records, kernel=fake, **kwargs)
+
+    def test_masked_and_duck_typed_inputs(self) -> None:
+        fixture = ROOT / "tests" / "fixtures" / "regression-missing"
+        X = np.loadtxt(fixture / "X.csv", delimiter=",", dtype=np.float32, ndmin=2)[:4]
+        # Deterministic mode makes the equalities below exact: inputs that coerce to
+        # the same matrix must produce bitwise-identical attributions.
+        explainer = MetalTreeExplainer.from_xgboost(
+            fixture / "model.json", accumulation="deterministic"
+        )
+        nan_matrix = X.copy()
+        nan_matrix[0, 0] = np.nan
+        baseline = explainer.explain(nan_matrix)
+
+        # A masked entry means "missing": it must route like NaN, never expose the
+        # backing storage value.
+        masked = np.ma.MaskedArray(X.copy(), mask=np.zeros_like(X, dtype=bool))
+        masked[0, 0] = 999.0
+        masked.mask[0, 0] = True
+        np.testing.assert_array_equal(explainer.explain(masked), baseline)
+
+        class PlainToNumpy:  # polars/xarray-style: to_numpy() takes no kwargs
+            def to_numpy(self, **kwargs):
+                if kwargs:
+                    raise TypeError("to_numpy() got an unexpected keyword argument")
+                return nan_matrix
+
+        np.testing.assert_array_equal(explainer.explain(PlainToNumpy()), baseline)
+
+    def test_last_timings_trim_and_zero_copy_conversion(self) -> None:
+        fixture = ROOT / "tests" / "fixtures" / "regression-missing"
+        X = np.loadtxt(fixture / "X.csv", delimiter=",", dtype=np.float32, ndmin=2)
+        explainer = MetalTreeExplainer.from_xgboost(
+            fixture / "model.json", accumulation="deterministic"
+        )
+        self.assertIsNone(explainer.last_timings)
+        big = np.tile(X, (256, 1))  # large enough for a page-aligned numpy allocation
+        base = explainer.explain(big)
+        # float64 input takes the page-padded conversion, which the host wraps zero-copy.
+        wide = explainer.explain(big.astype(np.float64))
+        timings = explainer.last_timings
+        self.assertIsInstance(timings, dict)
+        self.assertTrue(timings["dispatched"])
+        self.assertTrue(timings["x_zero_copy"])
+        self.assertGreater(timings["total_s"], 0.0)
+        np.testing.assert_array_equal(wide, base)
+        explainer.trim_buffers()
+        np.testing.assert_array_equal(explainer.explain(big), base)  # regrows on demand
+
+    def test_concurrent_explain_calls_are_safe(self) -> None:
+        import concurrent.futures
+
+        fixture = ROOT / "tests" / "fixtures" / "regression-missing"
+        X = np.loadtxt(fixture / "X.csv", delimiter=",", dtype=np.float32, ndmin=2)
+        explainer = MetalTreeExplainer.from_xgboost(
+            fixture / "model.json", accumulation="deterministic"
+        )
+        baseline = explainer.explain(X)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: explainer.explain(X), range(16)))
+        for result in results:  # deterministic mode: bitwise equality expected
+            np.testing.assert_array_equal(result, baseline)
+
+    def test_forked_child_is_rejected_cleanly(self) -> None:
+        fixture = ROOT / "tests" / "fixtures" / "regression-missing"
+        X = np.loadtxt(fixture / "X.csv", delimiter=",", dtype=np.float32, ndmin=2)[:2]
+        explainer = MetalTreeExplainer.from_xgboost(fixture / "model.json")
+        explainer.explain(X)  # fully initialized before forking
+        pid = os.fork()
+        if pid == 0:  # child: the guard must raise before any Metal call can crash
+            code = 1
+            try:
+                explainer.explain(X)
+            except RuntimeError as error:
+                code = 42 if "forked child" in str(error) else 43
+            except BaseException:
+                code = 44
+            finally:
+                os._exit(code)
+        _, status = os.waitpid(pid, 0)
+        self.assertTrue(os.WIFEXITED(status))
+        self.assertEqual(os.WEXITSTATUS(status), 42)
+
 
 if __name__ == "__main__":
     unittest.main()

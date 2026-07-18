@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Part of metal-treeshap (see LICENSE and NOTICE); shipped in wheels as _extract_paths.
 """Extract GPUTreeShap-style path elements from an XGBoost model.
 
 Parses the *raw JSON model* (booster.save_raw("json"), booster.save_model(...json), or an
@@ -52,7 +54,7 @@ _MARGIN_LINK: dict[str, str] = {
 }
 
 
-@dataclass
+@dataclass(slots=True)  # created once per (leaf, ancestor): slots keep that cheap
 class PathElement:
     path_idx: int
     feature_idx: int  # -1 == root
@@ -76,10 +78,17 @@ class ExtractedModel:
 
 
 def load_model_dict(source) -> dict:
-    """Accept an xgboost Booster, a path to a JSON model file, or a parsed dict."""
+    """Accept an xgboost Booster, a path to a JSON model file, raw JSON text/bytes
+    (``booster.save_raw("json")`` output), or a parsed dict."""
     if isinstance(source, dict):
         return source
-    if isinstance(source, (str, bytes)):
+    if isinstance(source, (str, bytes, bytearray)):
+        # save_raw("json") hands back the model itself (a bytearray), and users also
+        # pass its decoded text; treating either as a filename fails with a confusing
+        # "File name too long". A model document always starts with '{'.
+        stripped = source.lstrip()
+        if stripped.startswith("{" if isinstance(stripped, str) else b"{"):
+            return json.loads(source)
         with open(source, "rb") as f:
             return json.load(f)
     if hasattr(source, "save_raw"):  # xgboost.Booster without importing xgboost

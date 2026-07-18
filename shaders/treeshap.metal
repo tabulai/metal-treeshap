@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Part of metal-treeshap (see LICENSE and NOTICE); ported from RAPIDS GPUTreeShap.
+//
 // metal-treeshap: first-order TreeSHAP kernel for Apple GPUs.
 //
 // Port of gpu_treeshap.h's ShapKernel (CUDA) to Metal Shading Language. See
@@ -58,12 +61,18 @@ struct DeterministicParams {
   uint rows_per_simdgroup;
   uint num_partials;
   uint num_active_cells;
+  uint num_chunks;            // stage-A work items per row
 };
 
 struct ReductionCell {        // matches DeterministicReductionCell in deterministic.h
   uint group;
   uint feature;
   uint begin;
+  uint end;
+};
+
+struct ReductionChunk {       // matches DeterministicReductionChunk in deterministic.h
+  uint begin;                 // partial-slot range [begin, end), one cell, <= 256 slots
   uint end;
 };
 
@@ -251,8 +260,9 @@ kernel void shap_first_order_simdgroup(
 // ---- Phase-2 deterministic accumulation ---------------------------------------
 // Stage 1 computes the same float recurrence as shap_first_order, but every non-root
 // element owns one canonical scratch slot. There are no atomics and every slot is fully
-// written for every row in the tile. Stage 2 below reduces each output cell in path-id
-// order. The host tiles rows so scratch stays within a configurable byte budget.
+// written for every row in the tile. The two reduction stages below then sum each output
+// cell's slots in fixed path-id order through model-defined 256-slot chunks. The host
+// tiles rows so scratch stays within a configurable byte budget.
 [[max_total_threads_per_threadgroup(256)]]
 kernel void shap_partials(
     device const float* X                    [[buffer(0)]],
@@ -335,14 +345,47 @@ kernel void shap_partials(
   }
 }
 
-// One thread exclusively owns one active (row, group, feature) cell. Slots for a cell
-// are contiguous and sorted by path_idx, making the addition order independent of GPU
-// scheduling, threadgroup size, row-bank size, and row-tile size. Kahan compensation is
-// safe here because there are no concurrent writers. The host builds this entrypoint
-// from a separate library with fast math disabled; otherwise reassociation legally
-// collapses the compensation back to ordinary summation.
-kernel void reduce_partials_serial(
+// Two-stage fixed-shape reduction. A fully serial per-cell chain (the Phase-2.1 design)
+// left only rows*cells threads in flight with chains of tens of thousands of dependent
+// adds on large models; splitting every cell's slot segment into fixed 256-slot chunks
+// multiplies the stage-A parallelism by ~chunks/cells while keeping the summation shape
+// a pure function of the model. Kahan compensation is safe in both stages because each
+// scratch/output word has exactly one writer. The host builds both entrypoints from a
+// separate library with fast math disabled; otherwise reassociation legally collapses
+// the compensation back to ordinary summation.
+//
+// Stage A: one thread exclusively owns one (row, chunk) and Kahan-sums its slot run.
+[[max_total_threads_per_threadgroup(256)]]
+kernel void reduce_partials_chunks(
     device const float* partials          [[buffer(0)]],
+    device const ReductionChunk* chunks   [[buffer(1)]],
+    device float* chunk_sums              [[buffer(2)]],
+    constant DeterministicParams& p       [[buffer(3)]],
+    uint tid                              [[thread_position_in_grid]]) {
+  const ulong work = ulong(p.num_rows) * p.num_chunks;
+  if (ulong(tid) >= work) return;
+  const uint row = tid / p.num_chunks;
+  const uint chunk_idx = tid % p.num_chunks;
+  const ReductionChunk chunk = chunks[chunk_idx];
+  float sum = 0.0f;
+  float compensation = 0.0f;
+  const ulong partial_base = ulong(row) * p.num_partials;
+  for (uint i = chunk.begin; i < chunk.end; ++i) {
+    const float y = partials[partial_base + i] - compensation;
+    const float next = sum + y;
+    compensation = (next - sum) - y;
+    sum = next;
+  }
+  chunk_sums[ulong(row) * p.num_chunks + chunk_idx] = sum;
+}
+
+// Stage B: one thread exclusively owns one active (row, group, feature) cell and
+// Kahan-combines its chunk sums in fixed chunk order (cells' begin/end are CHUNK
+// indices here). For a cell that fits one chunk this is bit-identical to the previous
+// fully-serial reducer.
+[[max_total_threads_per_threadgroup(256)]]
+kernel void reduce_chunks_serial(
+    device const float* chunk_sums        [[buffer(0)]],
     device const ReductionCell* cells     [[buffer(1)]],
     device float* phis                    [[buffer(2)]],
     constant DeterministicParams& p       [[buffer(3)]],
@@ -354,9 +397,9 @@ kernel void reduce_partials_serial(
   const ReductionCell cell = cells[cell_idx];
   float sum = 0.0f;
   float compensation = 0.0f;
-  const ulong partial_base = ulong(row) * p.num_partials;
+  const ulong chunk_base = ulong(row) * p.num_chunks;
   for (uint i = cell.begin; i < cell.end; ++i) {
-    const float y = partials[partial_base + i] - compensation;
+    const float y = chunk_sums[chunk_base + i] - compensation;
     const float next = sum + y;
     compensation = (next - sum) - y;
     sum = next;

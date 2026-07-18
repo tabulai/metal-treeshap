@@ -104,12 +104,14 @@ workload family.
 
 ## Python `MetalTreeExplainer`
 
-```bash
-python3 -m pip install metal-treeshap
-```
+The package is not yet published to PyPI (see RELEASING.md). Until that lands, build the
+wheel from a source checkout on Apple Silicon:
 
-For a source checkout, install `build`, run `python3 -m build --wheel`, and install the
-resulting `dist/metal_treeshap-*.whl`.
+```bash
+python3 -m pip install build
+python3 -m build --wheel
+python3 -m pip install dist/metal_treeshap-*.whl
+```
 
 ```python
 from metal_treeshap import MetalTreeExplainer

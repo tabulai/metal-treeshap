@@ -215,6 +215,31 @@ def load_workload(path: Path) -> dict:
     return payload
 
 
+_NATIVE_SCHEMA_VALIDATOR = None
+
+
+def _native_schema_validator():
+    """Validator for the schema's native_result branch, or None without jsonschema.
+
+    The runner stays dependency-light for ad-hoc local use; CI installs jsonschema, so
+    published artifacts are always fully validated rather than only spot-checked by the
+    hand-written field comparisons below.
+    """
+    global _NATIVE_SCHEMA_VALIDATOR
+    if _NATIVE_SCHEMA_VALIDATOR is None:
+        try:
+            import jsonschema
+        except ImportError:
+            return None
+        schema_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "phase2_schema.json")
+        with open(schema_path, encoding="utf-8") as handle:
+            schema = json.load(handle)
+        _NATIVE_SCHEMA_VALIDATOR = jsonschema.Draft202012Validator(
+            {"$defs": schema["$defs"], "$ref": "#/$defs/native_result"})
+    return _NATIVE_SCHEMA_VALIDATOR
+
+
 def validate_result(
     result: dict,
     workload: dict,
@@ -226,6 +251,14 @@ def validate_result(
 ) -> None:
     if result.get("schema") != RESULT_SCHEMA or result.get("status") != "ok":
         raise RuntimeError("native benchmark returned an unsupported/failed result")
+    validator = _native_schema_validator()
+    if validator is not None:
+        errors = sorted(validator.iter_errors(result), key=lambda e: list(e.path))
+        if errors:
+            where = "/".join(str(part) for part in errors[0].path) or "<root>"
+            raise RuntimeError(
+                f"native result violates phase2_schema.json native_result at {where}: "
+                f"{errors[0].message}")
     if result["workload"]["rows"] <= 0 or result["workload"]["cols"] <= 0:
         raise RuntimeError("native benchmark returned an invalid workload shape")
     if result["configuration"]["accumulation"] != configuration["accumulation"]:

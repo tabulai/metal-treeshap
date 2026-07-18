@@ -153,7 +153,12 @@ def run_fixture(case_dir: str) -> None:
             metal_err = float(np.max(np.abs(phism - expected.reshape(n_test, per_row))))
 
     err = float(np.max(np.abs(phis - expected.reshape(n_test, per_row))))
-    tol = meta["tolerance"]
+    # The frozen product gate (meta.json, 1e-3) leaves 100-1000x headroom over the
+    # observed errors (<= ~6.5e-6 across all current fixtures); the tripwire catches
+    # moderate numeric regressions the product gate would wave through. Raise it only
+    # for an intended numerical-contract change.
+    REGRESSION_TRIPWIRE = 1e-4
+    tol = min(meta["tolerance"], REGRESSION_TRIPWIRE)
     ok = err < tol and (metal_err is None or metal_err < tol)
     status = "PASS" if ok else "FAIL"
     print(f"[{status}] fixture '{meta['case']}' ({kind}"

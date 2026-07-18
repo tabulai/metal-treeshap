@@ -454,8 +454,10 @@ int main() {
       max_resid32 = std::max(max_resid32, std::abs(sum32 - margin));
     }
     // fp32 kernel arithmetic on deep paths: tolerance scales mildly with ensemble size.
+    // max_dev (elementwise fp32 vs fp64) is asserted too, not just printed: a change
+    // that wrecked fp32 accumulation while preserving additivity must not pass.
     const double tol = 1e-4 * std::max(1, num_trees);
-    const bool ok = max_resid64 < tol && max_resid32 < tol;
+    const bool ok = max_resid64 < tol && max_resid32 < tol && max_dev < tol;
     std::printf("trial %2d: trees=%2d elements=%6zu max_group=%2zu additivity fp64=%.2e "
                 "fp32=%.2e fp32-vs-fp64=%.2e %s\n",
                 trial, num_trees, raw.size(), MaxGroupLen(pp), max_resid64, max_resid32,

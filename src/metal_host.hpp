@@ -77,6 +77,7 @@ struct DeterministicKernelParams {  // must match DeterministicParams in treesha
   uint32_t rows_per_simdgroup;
   uint32_t num_partials;
   uint32_t num_active_cells;
+  uint32_t num_chunks;
 };
 
 enum class AccumulationMode : uint32_t {
@@ -118,6 +119,16 @@ inline size_t CheckedMul(size_t a, size_t b, const char* what) {
     throw std::invalid_argument(std::string(what) + " size overflows");
   }
   return a * b;
+}
+
+// Metal reports the actionable diagnosis (page fault, IOGPU restart, compile detail)
+// through NSError; append it so failures are debuggable from the exception alone.
+inline std::string AppendNsError(std::string message, NS::Error* error) {
+  if (error && error->localizedDescription()) {
+    message += ": ";
+    message += error->localizedDescription()->utf8String();
+  }
+  return message;
 }
 
 // Scoped autorelease pool (metal-cpp command buffers/encoders are autoreleased).
@@ -243,6 +254,9 @@ class CompiledModel {
         BuildDeterministicPlan(pp, num_groups, num_cols);
     deterministic_num_partials_ = deterministic_plan.num_partials;
     deterministic_num_active_cells_ = deterministic_plan.active_cells.size();
+    deterministic_num_chunks_ = deterministic_plan.chunks.size();
+    detail_host::CheckU32(deterministic_num_chunks_, "deterministic chunks");
+    deterministic_scratch_bytes_per_row_ = deterministic_plan.ScratchBytesPerRow();
     bias_.resize(num_groups);
     for (size_t g = 0; g < num_groups; g++) {
       const double combined = pp.bias[g] + intercepts[g];
@@ -266,9 +280,14 @@ class CompiledModel {
       const size_t slot_bytes = detail_host::CheckedMul(
           deterministic_plan.partial_slot_by_element.size(), sizeof(uint32_t),
           "deterministic slots");
+      // The GPU consumes the CHUNK-space cell ranges (stage B) plus the chunk table
+      // (stage A); the slot-space active_cells stay host-side statistics only.
       const size_t cell_bytes = detail_host::CheckedMul(
-          deterministic_plan.active_cells.size(), sizeof(DeterministicReductionCell),
+          deterministic_plan.chunk_cells.size(), sizeof(DeterministicReductionCell),
           "deterministic cells");
+      const size_t chunk_bytes = detail_host::CheckedMul(
+          deterministic_plan.chunks.size(), sizeof(DeterministicReductionChunk),
+          "deterministic chunks");
       // Staging buffers also are the final buffers in shared mode. Keeping allocation in
       // guards makes every failure path leak-free.
       detail_host::OwnGuard<MTL::Buffer> elem_staging(device->newBuffer(
@@ -281,18 +300,23 @@ class CompiledModel {
           MTL::ResourceStorageModeShared));
       detail_host::OwnGuard<MTL::Buffer> slot_staging;
       detail_host::OwnGuard<MTL::Buffer> cell_staging;
+      detail_host::OwnGuard<MTL::Buffer> chunk_staging;
       if (deterministic_num_partials_ != 0) {
         slot_staging = detail_host::OwnGuard<MTL::Buffer>(device->newBuffer(
             deterministic_plan.partial_slot_by_element.data(), slot_bytes,
             MTL::ResourceStorageModeShared));
         cell_staging = detail_host::OwnGuard<MTL::Buffer>(device->newBuffer(
-            deterministic_plan.active_cells.data(), cell_bytes,
+            deterministic_plan.chunk_cells.data(), cell_bytes,
+            MTL::ResourceStorageModeShared));
+        chunk_staging = detail_host::OwnGuard<MTL::Buffer>(device->newBuffer(
+            deterministic_plan.chunks.data(), chunk_bytes,
             MTL::ResourceStorageModeShared));
       }
       if (!elem_staging || !seg_staging) {
         throw std::runtime_error("model staging-buffer allocation failed");
       }
-      if (deterministic_num_partials_ != 0 && (!slot_staging || !cell_staging)) {
+      if (deterministic_num_partials_ != 0 &&
+          (!slot_staging || !cell_staging || !chunk_staging)) {
         throw std::runtime_error("deterministic model staging-buffer allocation failed");
       }
 
@@ -302,6 +326,7 @@ class CompiledModel {
         if (deterministic_num_partials_ != 0) {
           deterministic_slots_ = slot_staging.Transfer();
           deterministic_cells_ = cell_staging.Transfer();
+          deterministic_chunks_ = chunk_staging.Transfer();
         }
       } else {
         if (!queue) throw std::invalid_argument("null Metal command queue");
@@ -311,16 +336,20 @@ class CompiledModel {
             device->newBuffer(seg_bytes, MTL::ResourceStorageModePrivate));
         detail_host::OwnGuard<MTL::Buffer> slot_private;
         detail_host::OwnGuard<MTL::Buffer> cell_private;
+        detail_host::OwnGuard<MTL::Buffer> chunk_private;
         if (deterministic_num_partials_ != 0) {
           slot_private = detail_host::OwnGuard<MTL::Buffer>(
               device->newBuffer(slot_bytes, MTL::ResourceStorageModePrivate));
           cell_private = detail_host::OwnGuard<MTL::Buffer>(
               device->newBuffer(cell_bytes, MTL::ResourceStorageModePrivate));
+          chunk_private = detail_host::OwnGuard<MTL::Buffer>(
+              device->newBuffer(chunk_bytes, MTL::ResourceStorageModePrivate));
         }
         if (!elem_private || !seg_private) {
           throw std::runtime_error("private model-buffer allocation failed");
         }
-        if (deterministic_num_partials_ != 0 && (!slot_private || !cell_private)) {
+        if (deterministic_num_partials_ != 0 &&
+            (!slot_private || !cell_private || !chunk_private)) {
           throw std::runtime_error("private deterministic model-buffer allocation failed");
         }
 
@@ -334,23 +363,22 @@ class CompiledModel {
         if (deterministic_num_partials_ != 0) {
           blit->copyFromBuffer(slot_staging.get(), 0, slot_private.get(), 0, slot_bytes);
           blit->copyFromBuffer(cell_staging.get(), 0, cell_private.get(), 0, cell_bytes);
+          blit->copyFromBuffer(chunk_staging.get(), 0, chunk_private.get(), 0,
+                               chunk_bytes);
         }
         blit->endEncoding();
         cmd->commit();
         cmd->waitUntilCompleted();
         if (cmd->status() == MTL::CommandBufferStatusError) {
-          std::string message = "private model-buffer upload failed";
-          if (cmd->error() && cmd->error()->localizedDescription()) {
-            message += ": ";
-            message += cmd->error()->localizedDescription()->utf8String();
-          }
-          throw std::runtime_error(message);
+          throw std::runtime_error(detail_host::AppendNsError(
+              "private model-buffer upload failed", cmd->error()));
         }
         elements_ = elem_private.Transfer();
         segments_ = seg_private.Transfer();
         if (deterministic_num_partials_ != 0) {
           deterministic_slots_ = slot_private.Transfer();
           deterministic_cells_ = cell_private.Transfer();
+          deterministic_chunks_ = chunk_private.Transfer();
         }
       }
     }
@@ -361,6 +389,7 @@ class CompiledModel {
     if (segments_) segments_->release();
     if (deterministic_slots_) deterministic_slots_->release();
     if (deterministic_cells_) deterministic_cells_->release();
+    if (deterministic_chunks_) deterministic_chunks_->release();
   }
   CompiledModel(const CompiledModel&) = delete;
   CompiledModel& operator=(const CompiledModel&) = delete;
@@ -381,12 +410,14 @@ class CompiledModel {
   size_t deterministic_num_active_cells() const {
     return deterministic_num_active_cells_;
   }
+  size_t deterministic_num_chunks() const { return deterministic_num_chunks_; }
+  // Partial slots plus one stage-A chunk sum per chunk (see DeterministicPlan).
   size_t deterministic_scratch_bytes_per_row() const {
-    return detail_host::CheckedMul(deterministic_num_partials_, sizeof(float),
-                                   "deterministic scratch bytes per row");
+    return deterministic_scratch_bytes_per_row_;
   }
   MTL::Buffer* deterministic_slots() const { return deterministic_slots_; }
   MTL::Buffer* deterministic_cells() const { return deterministic_cells_; }
+  MTL::Buffer* deterministic_chunks() const { return deterministic_chunks_; }
 
  private:
   size_t num_groups_, num_cols_, num_bins_ = 0;
@@ -394,12 +425,15 @@ class CompiledModel {
   MTL::Buffer* elements_ = nullptr;
   MTL::Buffer* segments_ = nullptr;
   MTL::Buffer* deterministic_slots_ = nullptr;
-  MTL::Buffer* deterministic_cells_ = nullptr;
+  MTL::Buffer* deterministic_cells_ = nullptr;  // CHUNK-space [begin, end) per cell
+  MTL::Buffer* deterministic_chunks_ = nullptr;
   ModelStorageMode storage_mode_ = ModelStorageMode::kShared;
   size_t atomic_writes_per_row_ = 0;
   size_t simdgroup_writes_per_row_ = 0;
   size_t deterministic_num_partials_ = 0;
   size_t deterministic_num_active_cells_ = 0;
+  size_t deterministic_num_chunks_ = 0;
+  size_t deterministic_scratch_bytes_per_row_ = 0;
 };
 
 class Explainer {
@@ -424,7 +458,8 @@ class Explainer {
     detail_host::OwnGuard<MTL::ComputePipelineState> pso_g;
     detail_host::OwnGuard<MTL::ComputePipelineState> simdgroup_pso_g;
     detail_host::OwnGuard<MTL::ComputePipelineState> partial_pso_g;
-    detail_host::OwnGuard<MTL::ComputePipelineState> reduction_pso_g;
+    detail_host::OwnGuard<MTL::ComputePipelineState> chunk_reduce_pso_g;
+    detail_host::OwnGuard<MTL::ComputePipelineState> cell_reduce_pso_g;
     {
       detail_host::ScopedPool pool;  // scope autoreleased strings/errors
       NS::Error* error = nullptr;
@@ -433,7 +468,10 @@ class Explainer {
       if (kind == LibraryKind::kMetallibFile) {
         auto* lib_path = NS::String::string(spec.c_str(), NS::UTF8StringEncoding);
         lib_g = detail_host::OwnGuard<MTL::Library>(device_g->newLibrary(lib_path, &error));
-        if (!lib_g) throw std::runtime_error("failed to load metallib: " + spec);
+        if (!lib_g) {
+          throw std::runtime_error(
+              detail_host::AppendNsError("failed to load metallib: " + spec, error));
+        }
         const size_t suffix = spec.rfind(".metallib");
         const std::string precise_path =
             suffix == std::string::npos
@@ -445,9 +483,10 @@ class Explainer {
         precise_lib_g = detail_host::OwnGuard<MTL::Library>(
             device_g->newLibrary(precise_lib_path, &error));
         if (!precise_lib_g) {
-          throw std::runtime_error(
+          throw std::runtime_error(detail_host::AppendNsError(
               "failed to load precise reducer metallib: " + precise_path +
-              " (compile shaders/treeshap.metal with fast math disabled)");
+                  " (compile shaders/treeshap.metal with fast math disabled)",
+              error));
         }
       } else {
         // Runtime compilation: the tested path on Macs without the offline Metal toolchain.
@@ -461,12 +500,8 @@ class Explainer {
         lib_g = detail_host::OwnGuard<MTL::Library>(
             device_g->newLibrary(src, opts.get(), &error));
         if (!lib_g) {
-          std::string msg = "failed to compile MSL source";
-          if (error && error->localizedDescription()) {
-            msg += ": ";
-            msg += error->localizedDescription()->utf8String();
-          }
-          throw std::runtime_error(msg);
+          throw std::runtime_error(
+              detail_host::AppendNsError("failed to compile MSL source", error));
         }
 
         // Compile a second copy only for the serial reducer. Metal fast math can
@@ -483,31 +518,30 @@ class Explainer {
         precise_lib_g = detail_host::OwnGuard<MTL::Library>(
             device_g->newLibrary(src, precise_opts.get(), &error));
         if (!precise_lib_g) {
-          std::string msg = "failed to compile precise MSL reducer";
-          if (error && error->localizedDescription()) {
-            msg += ": ";
-            msg += error->localizedDescription()->utf8String();
-          }
-          throw std::runtime_error(msg);
+          throw std::runtime_error(detail_host::AppendNsError(
+              "failed to compile precise MSL reducer", error));
         }
       }
       auto make_pipeline = [&](MTL::Library* library, const char* name) {
         auto* fn_name = NS::String::string(name, NS::UTF8StringEncoding);
         detail_host::OwnGuard<MTL::Function> fn_g(library->newFunction(fn_name));
         if (!fn_g) throw std::runtime_error(std::string("kernel '") + name + "' not found");
+        error = nullptr;
         detail_host::OwnGuard<MTL::ComputePipelineState> result(
             device_g->newComputePipelineState(fn_g.get(), &error));
         if (!result) {
-          throw std::runtime_error(std::string("failed to create pipeline state for '") +
-                                   name + "'");
+          throw std::runtime_error(detail_host::AppendNsError(
+              std::string("failed to create pipeline state for '") + name + "'", error));
         }
         return result;
       };
       pso_g = make_pipeline(lib_g.get(), "shap_first_order");
       simdgroup_pso_g = make_pipeline(lib_g.get(), "shap_first_order_simdgroup");
       partial_pso_g = make_pipeline(lib_g.get(), "shap_partials");
-      reduction_pso_g =
-          make_pipeline(precise_lib_g.get(), "reduce_partials_serial");
+      chunk_reduce_pso_g =
+          make_pipeline(precise_lib_g.get(), "reduce_partials_chunks");
+      cell_reduce_pso_g =
+          make_pipeline(precise_lib_g.get(), "reduce_chunks_serial");
     }
     if (pso_g->threadExecutionWidth() != 32 ||
         simdgroup_pso_g->threadExecutionWidth() != 32) {
@@ -523,7 +557,8 @@ class Explainer {
                                std::to_string(partial_pso_g->threadExecutionWidth()));
     }
     if (partial_pso_g->maxTotalThreadsPerThreadgroup() < 256 ||
-        reduction_pso_g->maxTotalThreadsPerThreadgroup() < 256) {
+        chunk_reduce_pso_g->maxTotalThreadsPerThreadgroup() < 256 ||
+        cell_reduce_pso_g->maxTotalThreadsPerThreadgroup() < 256) {
       throw std::runtime_error(
           "device cannot run deterministic kernels with 256-thread threadgroups");
     }
@@ -533,7 +568,8 @@ class Explainer {
     pso_ = pso_g.Transfer();
     simdgroup_pso_ = simdgroup_pso_g.Transfer();
     partial_pso_ = partial_pso_g.Transfer();
-    reduction_pso_ = reduction_pso_g.Transfer();
+    chunk_reduce_pso_ = chunk_reduce_pso_g.Transfer();
+    cell_reduce_pso_ = cell_reduce_pso_g.Transfer();
   }
 
   // Owns raw Metal objects: neither copyable nor movable (hold via unique_ptr).
@@ -554,8 +590,11 @@ class Explainer {
   // phis_out: num_rows * num_groups * (num_cols + 1) floats, fully written (bias +
   // intercept included). The result is copied once from the shared output buffer.
   // Serialized internally (persistent buffers); one Explainer per thread to parallelize.
+  // x_capacity_bytes (optional): the caller's actual allocation size behind X when it
+  // extends past the logical num_rows*num_cols floats. bytesNoCopy needs a page-multiple
+  // length, so a page-padded allocation lets arbitrary shapes take the zero-copy path.
   ExplainTimings Explain(const CompiledModel& model, const float* X, size_t num_rows,
-                         float* phis_out) {
+                         float* phis_out, size_t x_capacity_bytes = 0) {
     std::lock_guard<std::mutex> lock(mu_);
     const uint32_t rows_per_sg = rows_per_simdgroup_;  // read under the same mutex
     const uint32_t threads_per_tg = threads_per_threadgroup_;
@@ -608,8 +647,19 @@ class Explainer {
     const auto tu0 = chr::steady_clock::now();
     MTL::Buffer* x_wrapped = nullptr;
     const size_t page = static_cast<size_t>(getpagesize());
-    if ((reinterpret_cast<uintptr_t>(X) % page) == 0 && (x_bytes % page) == 0) {
-      x_wrapped = device_->newBuffer(const_cast<float*>(X), x_bytes,
+    size_t wrap_bytes = 0;
+    if ((reinterpret_cast<uintptr_t>(X) % page) == 0) {
+      if (x_bytes % page == 0) {
+        wrap_bytes = x_bytes;
+      } else if (x_capacity_bytes >= x_bytes) {
+        // A page-padded caller allocation admits a page-multiple wrap length that stays
+        // inside the allocation; the kernels only ever read the leading x_bytes.
+        const size_t padded = ((x_bytes + page - 1) / page) * page;
+        if (padded <= x_capacity_bytes) wrap_bytes = padded;
+      }
+    }
+    if (wrap_bytes != 0) {
+      x_wrapped = device_->newBuffer(const_cast<float*>(X), wrap_bytes,
                                      MTL::ResourceStorageModeShared,
                                      nullptr /*no deallocator*/);
       t.x_zero_copy = (x_wrapped != nullptr);
@@ -651,7 +701,7 @@ class Explainer {
 
     const bool deterministic = accumulation == AccumulationMode::kDeterministic;
     size_t tile_rows = num_rows;
-    size_t det_partials = 0, det_active_cells = 0;
+    size_t det_partials = 0, det_active_cells = 0, det_chunks = 0;
     if (!deterministic) {
       const bool tile_atomic = accumulation == AccumulationMode::kAtomic;
       if (tile_atomic && atomic_tile_rows_requested != 0) {
@@ -664,21 +714,33 @@ class Explainer {
     } else {
       det_partials = model.deterministic_num_partials();
       det_active_cells = model.deterministic_num_active_cells();
-      if (det_partials == 0 || det_active_cells == 0 || !model.deterministic_slots() ||
-          !model.deterministic_cells()) {
+      det_chunks = model.deterministic_num_chunks();
+      if (det_partials == 0 || det_active_cells == 0 || det_chunks == 0 ||
+          !model.deterministic_slots() || !model.deterministic_cells() ||
+          !model.deterministic_chunks()) {
         throw std::runtime_error("compiled model is missing deterministic metadata");
       }
+      // bytes_per_row covers the partial slots plus the stage-A chunk sums; the chunk
+      // count is the widest per-row reduction dispatch and therefore the 32-bit cap.
       const size_t bytes_per_row = model.deterministic_scratch_bytes_per_row();
       tile_rows = DeterministicTileRows(
-          num_rows, bytes_per_row, det_active_cells, model.num_bins(), rows_per_sg,
+          num_rows, bytes_per_row, det_chunks, model.num_bins(), rows_per_sg,
           threads_per_tg, deterministic_scratch_budget,
           static_cast<size_t>(device_->maxBufferLength()));
-      const size_t scratch_bytes = detail_host::CheckedMul(
-          tile_rows, bytes_per_row, "deterministic scratch bytes");
-      EnsureCapacity(&deterministic_partials_buf_, scratch_bytes,
+      const size_t partials_bytes = detail_host::CheckedMul(
+          detail_host::CheckedMul(tile_rows, det_partials, "deterministic partials"),
+          sizeof(float), "deterministic partials bytes");
+      const size_t chunk_sum_bytes = detail_host::CheckedMul(
+          detail_host::CheckedMul(tile_rows, det_chunks, "deterministic chunk sums"),
+          sizeof(float), "deterministic chunk-sum bytes");
+      EnsureCapacity(&deterministic_partials_buf_, partials_bytes,
                      MTL::ResourceStorageModePrivate);
-      t.deterministic_scratch_bytes = scratch_bytes;
-      t.deterministic_scratch_capacity_bytes = deterministic_partials_buf_->length();
+      EnsureCapacity(&deterministic_chunk_sums_buf_, chunk_sum_bytes,
+                     MTL::ResourceStorageModePrivate);
+      t.deterministic_scratch_bytes = partials_bytes + chunk_sum_bytes;
+      t.deterministic_scratch_capacity_bytes =
+          deterministic_partials_buf_->length() +
+          deterministic_chunk_sums_buf_->length();
       t.deterministic_tile_rows = tile_rows;
       t.deterministic_tiles = (num_rows + tile_rows - 1) / tile_rows;
     }
@@ -723,7 +785,8 @@ class Explainer {
             static_cast<uint32_t>(num_cols), static_cast<uint32_t>(num_groups),
             static_cast<uint32_t>(model.num_bins()), rows_per_sg,
             static_cast<uint32_t>(det_partials),
-            static_cast<uint32_t>(det_active_cells)};
+            static_cast<uint32_t>(det_active_cells),
+            static_cast<uint32_t>(det_chunks)};
 
         enc->setComputePipelineState(partial_pso_);
         enc->setBuffer(x_buf, 0, 0);
@@ -736,14 +799,24 @@ class Explainer {
                                   MTL::Size::Make(threads_per_tg, 1, 1));
         enc->memoryBarrier(MTL::BarrierScopeBuffers);
 
-        enc->setComputePipelineState(reduction_pso_);
+        // Stage A: one thread per (row, chunk) — partials in, chunk sums out.
+        // Cannot wrap: DeterministicTileRows capped tile_rows at UINT32_MAX / chunks.
+        enc->setComputePipelineState(chunk_reduce_pso_);
         enc->setBuffer(deterministic_partials_buf_, 0, 0);
+        enc->setBuffer(model.deterministic_chunks(), 0, 1);
+        enc->setBuffer(deterministic_chunk_sums_buf_, 0, 2);
+        enc->setBytes(&params, sizeof(params), 3);
+        enc->dispatchThreads(MTL::Size::Make(rows * det_chunks, 1, 1),
+                             MTL::Size::Make(threads_per_tg, 1, 1));
+        enc->memoryBarrier(MTL::BarrierScopeBuffers);
+
+        // Stage B: one thread per (row, cell) — fixed-order combine of chunk sums.
+        enc->setComputePipelineState(cell_reduce_pso_);
+        enc->setBuffer(deterministic_chunk_sums_buf_, 0, 0);
         enc->setBuffer(model.deterministic_cells(), 0, 1);
         enc->setBuffer(phis_buf_, 0, 2);
         enc->setBytes(&params, sizeof(params), 3);
-        // Cannot wrap: DeterministicTileRows capped tile_rows at UINT32_MAX / cells.
-        const size_t reduction_work = rows * det_active_cells;
-        enc->dispatchThreads(MTL::Size::Make(reduction_work, 1, 1),
+        enc->dispatchThreads(MTL::Size::Make(rows * det_active_cells, 1, 1),
                              MTL::Size::Make(threads_per_tg, 1, 1));
         row_offset += rows;
         if (row_offset < num_rows) {
@@ -757,7 +830,8 @@ class Explainer {
 
     cmd->waitUntilCompleted();
     if (cmd->status() == MTL::CommandBufferStatusError) {
-      throw std::runtime_error("GPU execution failed");
+      throw std::runtime_error(
+          detail_host::AppendNsError("GPU execution failed", cmd->error()));
     }
     t.gpu_s = cmd->GPUEndTime() - cmd->GPUStartTime();
     t.dispatched = true;
@@ -814,10 +888,20 @@ class Explainer {
       throw std::invalid_argument("deterministic scratch budget must be > 0 bytes");
     }
     std::lock_guard<std::mutex> lock(mu_);
-    // The budget is a strict retained-buffer cap, not merely an active-range cap.
-    if (deterministic_partials_buf_ && deterministic_partials_buf_->length() > bytes) {
-      deterministic_partials_buf_->release();
-      deterministic_partials_buf_ = nullptr;
+    // The budget is a strict retained-buffer cap, not merely an active-range cap. The
+    // partials and stage-A chunk-sum buffers count against it together.
+    const size_t retained =
+        (deterministic_partials_buf_ ? deterministic_partials_buf_->length() : 0) +
+        (deterministic_chunk_sums_buf_ ? deterministic_chunk_sums_buf_->length() : 0);
+    if (retained > bytes) {
+      if (deterministic_partials_buf_) {
+        deterministic_partials_buf_->release();
+        deterministic_partials_buf_ = nullptr;
+      }
+      if (deterministic_chunk_sums_buf_) {
+        deterministic_chunk_sums_buf_->release();
+        deterministic_chunk_sums_buf_ = nullptr;
+      }
     }
     deterministic_scratch_budget_bytes_ = bytes;
   }
@@ -829,14 +913,35 @@ class Explainer {
 
   size_t deterministic_scratch_capacity_bytes() const {
     std::lock_guard<std::mutex> lock(mu_);
-    return deterministic_partials_buf_ ? deterministic_partials_buf_->length() : 0;
+    return (deterministic_partials_buf_ ? deterministic_partials_buf_->length() : 0) +
+           (deterministic_chunk_sums_buf_ ? deterministic_chunk_sums_buf_->length()
+                                          : 0);
+  }
+
+  // Release the persistent staging/output/scratch buffers retained across Explain
+  // calls. They regrow on demand, so this only matters after an unusually large batch
+  // whose peak allocation a long-lived explainer should not keep resident.
+  void TrimPersistentBuffers() {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto drop = [](MTL::Buffer** buffer) {
+      if (*buffer) {
+        (*buffer)->release();
+        *buffer = nullptr;
+      }
+    };
+    drop(&x_staging_);
+    drop(&phis_buf_);
+    drop(&deterministic_partials_buf_);
+    drop(&deterministic_chunk_sums_buf_);
   }
 
   ~Explainer() {
     if (x_staging_) x_staging_->release();
     if (phis_buf_) phis_buf_->release();
     if (deterministic_partials_buf_) deterministic_partials_buf_->release();
-    if (reduction_pso_) reduction_pso_->release();
+    if (deterministic_chunk_sums_buf_) deterministic_chunk_sums_buf_->release();
+    if (cell_reduce_pso_) cell_reduce_pso_->release();
+    if (chunk_reduce_pso_) chunk_reduce_pso_->release();
     if (partial_pso_) partial_pso_->release();
     if (simdgroup_pso_) simdgroup_pso_->release();
     if (pso_) pso_->release();
@@ -861,10 +966,12 @@ class Explainer {
   MTL::ComputePipelineState* pso_ = nullptr;
   MTL::ComputePipelineState* simdgroup_pso_ = nullptr;
   MTL::ComputePipelineState* partial_pso_ = nullptr;
-  MTL::ComputePipelineState* reduction_pso_ = nullptr;
+  MTL::ComputePipelineState* chunk_reduce_pso_ = nullptr;
+  MTL::ComputePipelineState* cell_reduce_pso_ = nullptr;
   MTL::Buffer* x_staging_ = nullptr;  // persistent, grown as needed
   MTL::Buffer* phis_buf_ = nullptr;   // persistent, grown as needed
   MTL::Buffer* deterministic_partials_buf_ = nullptr;
+  MTL::Buffer* deterministic_chunk_sums_buf_ = nullptr;
   // M4 Max Phase-2 tuning selected 256 for large ensembles; callers can retune.
   uint32_t rows_per_simdgroup_ = 256;
   uint32_t threads_per_threadgroup_ = 256;

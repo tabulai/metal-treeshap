@@ -581,11 +581,15 @@ int main(int argc, char** argv) {
            << ", \"worst_run_max_row_group_sum_abs\": "
            << accuracy_worst.max_row_group_sum_abs
            << ", \"relative_floor\": " << options.relative_floor
-           << ", \"max_abs_error_gate\": "
-           << (std::isfinite(options.max_abs_error)
-                   ? std::to_string(options.max_abs_error)
-                   : "null")
-           << "}\n";
+           << ", \"max_abs_error_gate\": ";
+      // Through the stream, not std::to_string: %f's fixed six decimals record any
+      // gate below 5e-7 as 0.000000 in the artifact.
+      if (std::isfinite(options.max_abs_error)) {
+        json << options.max_abs_error;
+      } else {
+        json << "null";
+      }
+      json << "}\n";
     }
     json << "}\n";
 

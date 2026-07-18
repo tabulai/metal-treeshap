@@ -11,6 +11,8 @@
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
 
+#include <unistd.h>  // getpid
+
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -100,6 +102,10 @@ class NativeExplainer {
     std::vector<double> intercept_values(intercepts.data(),
                                          intercepts.data() + num_groups);
 
+    // Everything below is pure C++/Metal work on the host copies made above: shader
+    // compilation, preprocessing, and (for private storage) a blocking blit can take
+    // seconds on large models and must not stall other Python threads.
+    nb::gil_scoped_release release;
     explainer_ = std::make_unique<Explainer>(
         kernel_spec, kernel_is_metallib ? Explainer::LibraryKind::kMetallibFile
                                         : Explainer::LibraryKind::kSourceString);
@@ -110,19 +116,23 @@ class NativeExplainer {
   void Configure(uint32_t rows_per_simdgroup, uint32_t threads_per_threadgroup,
                  const std::string& accumulation, size_t deterministic_scratch_mib,
                  size_t atomic_tile_rows) {
+    EnsureSameProcess();
     if (deterministic_scratch_mib == 0) {
       throw std::invalid_argument("deterministic_scratch_mib must be positive");
     }
+    const AccumulationMode mode = ParseAccumulation(accumulation);
+    const size_t scratch_bytes = CheckedMul(
+        deterministic_scratch_mib, size_t{1024 * 1024}, "deterministic scratch");
+    nb::gil_scoped_release release;  // the setters wait on the Explain mutex
     explainer_->set_rows_per_simdgroup(rows_per_simdgroup);
     explainer_->set_threads_per_threadgroup(threads_per_threadgroup);
-    explainer_->set_accumulation_mode(ParseAccumulation(accumulation));
-    explainer_->set_deterministic_scratch_budget_bytes(
-        CheckedMul(deterministic_scratch_mib, size_t{1024 * 1024},
-                   "deterministic scratch"));
+    explainer_->set_accumulation_mode(mode);
+    explainer_->set_deterministic_scratch_budget_bytes(scratch_bytes);
     explainer_->set_atomic_tile_rows(atomic_tile_rows);
   }
 
-  Output Explain(Matrix matrix) {
+  Output Explain(Matrix matrix, size_t x_capacity_bytes) {
+    EnsureSameProcess();
     if (matrix.shape(1) != model_->num_cols()) {
       throw std::invalid_argument("X feature count does not match compiled model");
     }
@@ -136,11 +146,40 @@ class NativeExplainer {
     });
     Output output(data,
                   {rows, model_->num_groups(), model_->num_cols() + 1}, owner);
+    ExplainTimings timings;
     {
       nb::gil_scoped_release release;
-      explainer_->Explain(*model_, matrix.data(), rows, data);
+      timings =
+          explainer_->Explain(*model_, matrix.data(), rows, data, x_capacity_bytes);
     }
+    last_timings_ = timings;  // GIL held again: concurrent explains serialize here
+    has_timings_ = true;
     return output;
+  }
+
+  void TrimBuffers() {
+    EnsureSameProcess();
+    nb::gil_scoped_release release;
+    explainer_->TrimPersistentBuffers();
+  }
+
+  nb::object LastTimings() const {
+    if (!has_timings_) return nb::none();
+    nb::dict out;
+    out["upload_s"] = last_timings_.upload_s;
+    out["encode_s"] = last_timings_.encode_s;
+    out["gpu_s"] = last_timings_.gpu_s;
+    out["total_s"] = last_timings_.total_s;
+    out["x_zero_copy"] = last_timings_.x_zero_copy;
+    out["dispatched"] = last_timings_.dispatched;
+    out["deterministic_scratch_bytes"] = last_timings_.deterministic_scratch_bytes;
+    out["deterministic_scratch_capacity_bytes"] =
+        last_timings_.deterministic_scratch_capacity_bytes;
+    out["deterministic_tile_rows"] = last_timings_.deterministic_tile_rows;
+    out["deterministic_tiles"] = last_timings_.deterministic_tiles;
+    out["atomic_tile_rows"] = last_timings_.atomic_tile_rows;
+    out["atomic_tiles"] = last_timings_.atomic_tiles;
+    return out;
   }
 
   size_t num_bins() const { return model_->num_bins(); }
@@ -149,8 +188,21 @@ class NativeExplainer {
   }
 
  private:
+  // Metal state does not survive fork(); using an inherited explainer in the child
+  // crashes deep inside the driver. Fail with a catchable error instead.
+  void EnsureSameProcess() const {
+    if (getpid() != pid_) {
+      throw std::runtime_error(
+          "MetalTreeExplainer cannot be used in a forked child process; construct a "
+          "new explainer there (multiprocessing: use the 'spawn' start method)");
+    }
+  }
+
   std::unique_ptr<Explainer> explainer_;
   std::unique_ptr<CompiledModel> model_;
+  pid_t pid_ = getpid();
+  ExplainTimings last_timings_{};
+  bool has_timings_ = false;
 };
 
 }  // namespace
@@ -173,7 +225,10 @@ NB_MODULE(_native, module) {
            "accumulation"_a = "atomic",
            "deterministic_scratch_mib"_a = 256,
            "atomic_tile_rows"_a = 0)
-      .def("explain", &NativeExplainer::Explain, "X"_a.noconvert())
+      .def("explain", &NativeExplainer::Explain, "X"_a.noconvert(),
+           "x_capacity_bytes"_a = 0)
+      .def("trim_buffers", &NativeExplainer::TrimBuffers)
+      .def_prop_ro("last_timings", &NativeExplainer::LastTimings)
       .def_prop_ro("num_bins", &NativeExplainer::num_bins)
       .def_prop_ro("storage_mode", &NativeExplainer::storage_mode);
 }

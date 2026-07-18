@@ -259,7 +259,11 @@ def run_case(name, objective, n_features, n_train, n_test, depth, rounds,
                         err_vs_xgb=err_vs_xgb, margin_err=margin_err, err_fp32=err_fp32,
                         rel_fp32_elem=rel_fp32_elem,
                         order_spread=order_spread if shuffle_trials else None))
-    ok = err_vs_xgb < TOL and margin_err < TOL
+    # err_fp32 and order_spread were previously computed and recorded but never gated:
+    # a regression confined to fp32 accumulation (or an exploding work-order spread)
+    # would have printed PASS. The 1e-3 gate is generous for both (observed ~1e-5).
+    ok = (err_vs_xgb < TOL and margin_err < TOL and err_fp32 < TOL
+          and (not shuffle_trials or order_spread < TOL))
     print(f"[{'PASS' if ok else 'FAIL'}] {name} ({objective}): "
           f"max|phi-xgb|={err_vs_xgb:.3e} sum-to-margin={margin_err:.3e} "
           f"fp32(abs={err_fp32:.3e}, rel_elem={rel_fp32_elem:.2e}"
@@ -420,6 +424,10 @@ if __name__ == "__main__":
     run_case("obj-squaredlogerror", "reg:squaredlogerror", seed=18, **mini)
     run_case("obj-quantile", "reg:quantileerror", seed=19,
              extra_params={"quantile_alpha": 0.5}, **mini)
+    # Every allowlisted objective must actually be trained by this suite: these two were
+    # in tools/extract_paths._MARGIN_LINK but previously untested end-to-end.
+    run_case("obj-pseudohuber", "reg:pseudohubererror", seed=20, **mini)
+    run_case("obj-softprob", "multi:softprob", seed=22, **mini)
 
     check_infinity_routing()
     objective_rejection = check_unknown_objective_rejected()

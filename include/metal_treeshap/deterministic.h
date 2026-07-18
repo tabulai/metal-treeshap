@@ -20,6 +20,12 @@ namespace metal_treeshap {
 
 inline constexpr uint32_t kNoPartialSlot = std::numeric_limits<uint32_t>::max();
 
+// Fixed chunk width of the two-stage reduction. Stage A Kahan-sums one chunk per thread;
+// stage B combines each cell's chunk sums in fixed chunk order. The chunk decomposition
+// depends only on the model (never on tile size, threadgroup size, or scheduling), so
+// the summation shape — and therefore the bitwise output — is deterministic.
+inline constexpr uint32_t kDeterministicChunkSlots = 256;
+
 // GPU-facing layout consumed by the deterministic kernels in shaders/treeshap.metal.
 struct DeterministicReductionCell {
   uint32_t group;
@@ -30,6 +36,15 @@ struct DeterministicReductionCell {
 static_assert(sizeof(DeterministicReductionCell) == 16);
 static_assert(alignof(DeterministicReductionCell) == 4);
 
+// One stage-A work item: a contiguous run of at most kDeterministicChunkSlots partial
+// slots belonging to a single cell. Matches ReductionChunk in shaders/treeshap.metal.
+struct DeterministicReductionChunk {
+  uint32_t begin;          // partial-slot range [begin, end)
+  uint32_t end;
+};
+static_assert(sizeof(DeterministicReductionChunk) == 8);
+static_assert(alignof(DeterministicReductionChunk) == 4);
+
 struct DeterministicPlan {
   // Indexed exactly like Preprocessed::elements. Roots carry kNoPartialSlot.
   std::vector<uint32_t> partial_slot_by_element;
@@ -38,13 +53,22 @@ struct DeterministicPlan {
   // (group, feature). Slots in each segment are sorted by path_idx, then element index.
   std::vector<DeterministicReductionCell> active_cells;
 
+  // Fixed-shape decomposition of every cell's slot segment into runs of at most
+  // kDeterministicChunkSlots (remainder last), in cell order. chunk_cells mirrors
+  // active_cells with [begin, end) expressed in CHUNK indices for the stage-B combine.
+  std::vector<DeterministicReductionChunk> chunks;
+  std::vector<DeterministicReductionCell> chunk_cells;
+
   size_t num_partials = 0;
 
+  // Scratch per row: the partial slots plus one stage-A chunk sum per chunk.
   size_t ScratchBytesPerRow() const {
-    if (num_partials > std::numeric_limits<size_t>::max() / sizeof(float)) {
+    const size_t floats = num_partials + chunks.size();
+    if (floats < num_partials ||
+        floats > std::numeric_limits<size_t>::max() / sizeof(float)) {
       throw std::overflow_error("deterministic scratch bytes per row overflow");
     }
-    return num_partials * sizeof(float);
+    return floats * sizeof(float);
   }
 
   // Largest row tile that respects scratch_budget_bytes. A non-empty plan needs
@@ -59,11 +83,12 @@ struct DeterministicPlan {
       throw std::invalid_argument(
           "deterministic scratch budget cannot hold one row of partials");
     }
-    // Both reduction kernels use a 32-bit 1-D grid coordinate. Cap the tile so
-    // row * active_cell cannot wrap even when scratch is effectively unlimited.
-    if (!active_cells.empty()) {
+    // The reduction kernels use a 32-bit 1-D grid coordinate. Stage A is the wider
+    // dispatch (one thread per chunk, chunks >= cells), so cap the tile on it.
+    const size_t reduction_width = std::max(chunks.size(), active_cells.size());
+    if (reduction_width != 0) {
       rows = std::min(rows, static_cast<size_t>(std::numeric_limits<uint32_t>::max()) /
-                                active_cells.size());
+                                reduction_width);
       if (rows == 0) {
         throw std::invalid_argument(
             "one deterministic output row exceeds 32-bit reduction dispatch width");
@@ -74,15 +99,17 @@ struct DeterministicPlan {
 };
 
 // Final row-tile bound shared by the host and portable tests. It combines the configured
-// scratch cap, Metal's maximum buffer length, and both kernels' uint grid coordinates.
+// scratch cap, Metal's maximum buffer length, and every kernel's uint grid coordinate.
+// `reduction_width` is the widest per-row reduction dispatch: the stage-A chunk count
+// (which is >= the cell count, so it bounds stage B too).
 inline size_t DeterministicTileRows(size_t num_rows, size_t bytes_per_row,
-                                    size_t active_cells, size_t num_bins,
+                                    size_t reduction_width, size_t num_bins,
                                     uint32_t rows_per_simdgroup,
                                     uint32_t threads_per_threadgroup,
                                     size_t scratch_budget_bytes,
                                     size_t device_max_buffer_bytes) {
   if (num_rows == 0) return 0;
-  if (bytes_per_row == 0 || active_cells == 0 || num_bins == 0 ||
+  if (bytes_per_row == 0 || reduction_width == 0 || num_bins == 0 ||
       rows_per_simdgroup == 0 || threads_per_threadgroup < 32 ||
       threads_per_threadgroup % 32 != 0) {
     throw std::invalid_argument("invalid deterministic tile shape");
@@ -99,7 +126,7 @@ inline size_t DeterministicTileRows(size_t num_rows, size_t bytes_per_row,
   constexpr uint64_t kMaxGridThreads =
       static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1;
   const uint64_t reduction_row_limit =
-      static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) / active_cells;
+      static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) / reduction_width;
   tile_rows = std::min(tile_rows, static_cast<size_t>(reduction_row_limit));
 
   const uint64_t simdgroups_per_tg = threads_per_threadgroup / 32;
@@ -179,6 +206,22 @@ inline DeterministicPlan BuildDeterministicPlan(const Preprocessed& pp, size_t n
   }
   for (size_t slot = 0; slot < entries.size(); ++slot) {
     plan.partial_slot_by_element[entries[slot].element] = static_cast<uint32_t>(slot);
+  }
+
+  // Fixed-shape chunk decomposition for the two-stage reduction. Chunk count is bounded
+  // by the (already uint32-checked) partial count, so the indices cannot overflow.
+  for (const DeterministicReductionCell& cell : plan.active_cells) {
+    const uint32_t chunk_begin = static_cast<uint32_t>(plan.chunks.size());
+    for (uint64_t begin = cell.begin; begin < cell.end;
+         begin += kDeterministicChunkSlots) {  // 64-bit: begin+chunk must not wrap uint32
+      plan.chunks.push_back(DeterministicReductionChunk{
+          static_cast<uint32_t>(begin),
+          static_cast<uint32_t>(std::min<uint64_t>(
+              cell.end, begin + kDeterministicChunkSlots))});
+    }
+    plan.chunk_cells.push_back(DeterministicReductionCell{
+        cell.group, cell.feature, chunk_begin,
+        static_cast<uint32_t>(plan.chunks.size())});
   }
   return plan;
 }

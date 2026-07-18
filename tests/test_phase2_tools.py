@@ -435,20 +435,35 @@ class TreeExplainer:
 
         # End-to-end runner job construction: six atomic tiles, one deterministic full.
         fake = root / "fake_benchmark.py"
+        # The fake emits a fully schema-conforming native result: phase2_run now
+        # validates against phase2_schema.json's native_result branch, so a bare
+        # hand-rolled subset (the previous fake) would be rejected by the runner.
         fake.write_text("""#!/usr/bin/env python3
 import csv,json,sys
 a=sys.argv[1:]
 def v(flag): return a[a.index(flag)+1]
 rows=sum(1 for r in csv.reader(open(a[1])) if r)
 cols=len(next(csv.reader(open(a[1]))))
+dist={'median':0.001,'p10':0.001,'p90':0.001,'samples':[0.001]}
 print(json.dumps({'schema':'metal_treeshap.phase2.benchmark.v1','status':'ok',
-'workload':{'source_rows':rows,'rows':rows,'cols':cols,'groups':int(a[2])},
+'workload':{'source_rows':rows,'rows':rows,'cols':cols,'groups':int(a[2]),
+'raw_path_elements':4,'packed_bins':1},
 'configuration':{'rows_per_simdgroup':int(v('--rows-per-simdgroup')),
 'threads_per_threadgroup':int(v('--threads-per-threadgroup')),
 'accumulation':v('--accumulation'),'model_storage':v('--model-storage'),
 'deterministic_scratch_mib':int(v('--deterministic-scratch-mib')),
 'atomic_tile_rows':int(v('--atomic-tile-rows')),'warmups':int(v('--warmup')),
-'iterations':int(v('--iterations'))},'accuracy':{}}))
+'iterations':int(v('--iterations'))},
+'setup_s':{},
+'timing_s':{'wall':dist,'gpu':dist,'x_zero_copy_samples':[1],
+'deterministic_runtime':{'active_scratch_bytes_samples':[0],
+'tile_rows_samples':[0],'tile_count_samples':[0]}},
+'throughput':{},
+'repeatability':{'hashes':['0'],'unique_hashes':1,'max_pairwise_abs':0,
+'max_pairwise_relative_symmetric':0,'relative_floor':1e-06},
+'accuracy':{'first_run_max_abs':0,'first_run_max_relative':0,'first_run_mean_abs':0,
+'first_run_max_row_group_sum_abs':0,'worst_run_max_abs':0,'worst_run_max_relative':0,
+'worst_run_mean_abs':0,'worst_run_max_row_group_sum_abs':0}}))
 """)
         fake.chmod(0o755)
         kernel = root / "kernel.metal"
@@ -487,6 +502,24 @@ print(json.dumps({'schema':'metal_treeshap.phase2.benchmark.v1','status':'ok',
         assert all(
             item["power"]["status"] == "unavailable" for item in result["results"]
         )
+        checks += 3
+
+        # phase2_schema.json is enforced, not decorative: every embedded native result
+        # must validate against its native_result branch, and the runner's validator
+        # must reject nonconforming payloads.
+        import phase2_run  # noqa: E402  (benchmarks/ already on sys.path)
+
+        schema_doc = json.loads((BENCHMARKS / "phase2_schema.json").read_text())
+        native_validator = jsonschema.Draft202012Validator(
+            {"$defs": schema_doc["$defs"], "$ref": "#/$defs/native_result"}
+        )
+        for item in result["results"]:
+            native_validator.validate(item["native"])
+        runner_validator = phase2_run._native_schema_validator()
+        assert runner_validator is not None, "jsonschema present but validator disabled"
+        broken = copy.deepcopy(result["results"][0]["native"])
+        del broken["timing_s"]
+        assert next(runner_validator.iter_errors(broken), None) is not None
         checks += 3
 
     print(f"ALL {checks} PHASE-2.1 TOOL TESTS PASSED")

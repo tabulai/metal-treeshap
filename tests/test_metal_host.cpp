@@ -171,10 +171,13 @@ int main(int argc, char** argv) {
         "wrong deterministic partial count");
   Check(model->deterministic_num_active_cells() == 1,
         "wrong deterministic active-cell count");
-  Check(model->deterministic_scratch_bytes_per_row() == 2 * sizeof(float),
+  Check(model->deterministic_num_chunks() == 1, "wrong deterministic chunk count");
+  // 2 partial slots + 1 stage-A chunk sum.
+  Check(model->deterministic_scratch_bytes_per_row() == 3 * sizeof(float),
         "wrong deterministic scratch bytes per row");
   Check(model->deterministic_slots()->storageMode() == MTL::StorageModeShared &&
-            model->deterministic_cells()->storageMode() == MTL::StorageModeShared,
+            model->deterministic_cells()->storageMode() == MTL::StorageModeShared &&
+            model->deterministic_chunks()->storageMode() == MTL::StorageModeShared,
         "shared deterministic buffers have the wrong Metal storage mode");
   auto private_model =
       explainer.Compile(paths, 1, 1, intercept, ModelStorageMode::kPrivate);
@@ -189,7 +192,10 @@ int main(int argc, char** argv) {
             model->simdgroup_writes_per_row(),
         "storage mode changed SIMD-group traffic estimate");
   Check(private_model->deterministic_slots()->storageMode() == MTL::StorageModePrivate &&
-            private_model->deterministic_cells()->storageMode() == MTL::StorageModePrivate,
+            private_model->deterministic_cells()->storageMode() ==
+                MTL::StorageModePrivate &&
+            private_model->deterministic_chunks()->storageMode() ==
+                MTL::StorageModePrivate,
         "private deterministic buffers have the wrong Metal storage mode");
   Throws([&] {
     (void)explainer.Compile(paths, 1, 1, intercept,
@@ -261,7 +267,7 @@ int main(int argc, char** argv) {
   const ExplainTimings tiled_tm =
       explainer.Explain(*model, x.data(), 5, tiled.data());
   Check(tiled_tm.deterministic_tile_rows == 1 && tiled_tm.deterministic_tiles == 5 &&
-            tiled_tm.deterministic_scratch_bytes == 2 * sizeof(float) &&
+            tiled_tm.deterministic_scratch_bytes == 3 * sizeof(float) &&
             tiled_tm.deterministic_scratch_capacity_bytes <=
                 explainer.deterministic_scratch_budget_bytes(),
         "deterministic one-row tiling metadata mismatch");

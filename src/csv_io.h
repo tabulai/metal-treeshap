@@ -79,12 +79,16 @@ inline uint32_t ParseU32(std::string_view token, const char* what) {
   return static_cast<uint32_t>(value);
 }
 
+// ERANGE is fatal only for overflow (result +/-HUGE_VAL). macOS strtod/strtof also set
+// it for gradual underflow while returning the correct subnormal; values like 1e-42 are
+// representable input, not errors.
 inline double ParseDouble(std::string_view token, const char* what) {
   const std::string s = TrimToken(token);
   errno = 0;
   char* end = nullptr;
   const double value = std::strtod(s.c_str(), &end);
-  if (s.empty() || errno == ERANGE || end == s.c_str() || *end != '\0') {
+  const bool overflow = errno == ERANGE && std::fabs(value) == HUGE_VAL;
+  if (s.empty() || overflow || end == s.c_str() || *end != '\0') {
     throw std::runtime_error(std::string("invalid ") + what + ": '" + s + "'");
   }
   return value;
@@ -95,7 +99,8 @@ inline float ParseFloat(std::string_view token, const char* what) {
   errno = 0;
   char* end = nullptr;
   const float value = std::strtof(s.c_str(), &end);
-  if (s.empty() || errno == ERANGE || end == s.c_str() || *end != '\0') {
+  const bool overflow = errno == ERANGE && std::fabs(value) == HUGE_VALF;
+  if (s.empty() || overflow || end == s.c_str() || *end != '\0') {
     throw std::runtime_error(std::string("invalid ") + what + ": '" + s + "'");
   }
   return value;
@@ -127,6 +132,7 @@ inline std::vector<PathElement> LoadPaths(const std::string& file) {
         first_column + "')");
   }
   while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();  // CRLF blank lines
     if (line.empty()) continue;
     auto f = SplitLine(line);
     if (f.size() != 8) throw std::runtime_error("bad paths row: " + line);
@@ -168,6 +174,7 @@ inline std::vector<float> LoadMatrix(const std::string& file, size_t* rows, size
   *rows = 0;
   *cols = 0;
   while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();  // CRLF blank lines
     if (line.empty()) continue;
     auto f = SplitLine(line);
     if (*cols == 0) {

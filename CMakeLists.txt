@@ -15,6 +15,10 @@ if(METAL_TREESHAP_SANITIZE)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
+# First-party code builds warning-free; keep it that way (vendored metal-cpp headers are
+# included as SYSTEM below so this does not police Apple's code).
+add_compile_options(-Wall -Wextra)
+
 # ---- Portable targets (build & run on any platform) ----
 add_executable(test_preprocess tests/test_preprocess.cpp)
 add_executable(test_property tests/test_property_additivity.cpp)
@@ -82,6 +86,8 @@ if(APPLE)
       COMMAND xcrun -sdk macosx metallib
               ${CMAKE_CURRENT_BINARY_DIR}/treeshap_precise.air
               -o ${PRECISE_METALLIB}
+      BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/treeshap.air
+                 ${CMAKE_CURRENT_BINARY_DIR}/treeshap_precise.air
       DEPENDS shaders/treeshap.metal
       COMMENT "Compiling fast and precise TreeSHAP metallibs")
     add_custom_target(metallib ALL DEPENDS ${METALLIB} ${PRECISE_METALLIB})
@@ -106,7 +112,7 @@ if(APPLE)
   add_executable(test_metal_host tests/test_metal_host.cpp)
   add_executable(phase2_benchmark src/main_benchmark.cpp)
   foreach(target metal_cli test_metal_host phase2_benchmark)
-    target_include_directories(${target} PRIVATE ${METAL_CPP_DIR})
+    target_include_directories(${target} SYSTEM PRIVATE ${METAL_CPP_DIR})
     target_link_libraries(${target} "-framework Metal" "-framework Foundation"
                           "-framework QuartzCore")
   endforeach()
@@ -261,7 +267,7 @@ if(METAL_TREESHAP_BUILD_PYTHON)
   endif()
 
   nanobind_add_module(_native NOMINSIZE bindings/python_module.cpp)
-  target_include_directories(_native PRIVATE ${METAL_CPP_DIR})
+  target_include_directories(_native SYSTEM PRIVATE ${METAL_CPP_DIR})
   target_link_libraries(_native PRIVATE "-framework Metal" "-framework Foundation"
                                         "-framework QuartzCore")
   install(TARGETS _native LIBRARY DESTINATION metal_treeshap)
