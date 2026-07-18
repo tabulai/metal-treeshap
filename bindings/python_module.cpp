@@ -11,12 +11,15 @@
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
 
-#include <unistd.h>  // getpid
+#include <unistd.h>  // getpid, getpagesize
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>  // posix_memalign, free
 #include <limits>
 #include <memory>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -140,17 +143,26 @@ class NativeExplainer {
     const size_t length = CheckedMul(
         CheckedMul(rows, model_->num_groups(), "output"), model_->num_cols() + 1,
         "output");
-    float* data = new float[length];
-    nb::capsule owner(data, [](void* pointer) noexcept {
-      delete[] static_cast<float*>(pointer);
-    });
+    const size_t bytes = CheckedMul(length, sizeof(float), "output bytes");
+    const size_t page = static_cast<size_t>(getpagesize());
+    if (bytes > std::numeric_limits<size_t>::max() - page) {
+      throw std::overflow_error("output size overflows");
+    }
+    // Page-aligned and page-padded so the host wraps this exact allocation with
+    // bytesNoCopy: the GPU prefills and writes the caller-visible memory directly
+    // and the copy-back disappears.
+    const size_t padded = std::max(((bytes + page - 1) / page) * page, page);
+    void* raw = nullptr;
+    if (posix_memalign(&raw, page, padded) != 0) throw std::bad_alloc();
+    float* data = static_cast<float*>(raw);
+    nb::capsule owner(raw, [](void* pointer) noexcept { std::free(pointer); });
     Output output(data,
                   {rows, model_->num_groups(), model_->num_cols() + 1}, owner);
     ExplainTimings timings;
     {
       nb::gil_scoped_release release;
-      timings =
-          explainer_->Explain(*model_, matrix.data(), rows, data, x_capacity_bytes);
+      timings = explainer_->Explain(*model_, matrix.data(), rows, data,
+                                    x_capacity_bytes, padded);
     }
     last_timings_ = timings;  // GIL held again: concurrent explains serialize here
     has_timings_ = true;
@@ -171,6 +183,7 @@ class NativeExplainer {
     out["gpu_s"] = last_timings_.gpu_s;
     out["total_s"] = last_timings_.total_s;
     out["x_zero_copy"] = last_timings_.x_zero_copy;
+    out["output_zero_copy"] = last_timings_.output_zero_copy;
     out["dispatched"] = last_timings_.dispatched;
     out["deterministic_scratch_bytes"] = last_timings_.deterministic_scratch_bytes;
     out["deterministic_scratch_capacity_bytes"] =

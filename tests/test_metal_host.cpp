@@ -13,9 +13,13 @@ int main() {
 #define CA_PRIVATE_IMPLEMENTATION
 #include "../src/metal_host.hpp"
 
+#include <unistd.h>  // getpagesize
+
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <thread>
 #include <functional>
 #include <iostream>
 #include <limits>
@@ -159,6 +163,18 @@ int main(int argc, char** argv) {
   const std::vector<double> intercept{0.25};
   auto model = explainer.Compile(paths, 1, 1, intercept);
   Check(!model->empty(), "non-empty model lost its work");
+  // Deterministic metadata is deferred: neither compilation, the eager partial count,
+  // nor an atomic-mode Explain may build it — only deterministic use or a stat query.
+  Check(!model->deterministic_ready(), "deterministic metadata built eagerly");
+  Check(model->deterministic_num_partials() == 2,
+        "wrong eager deterministic partial count");
+  Check(!model->deterministic_ready(), "eager partial count built the metadata");
+  {
+    std::vector<float> lazy_x{-1.0f, 1.0f};
+    std::vector<float> lazy_out(4, 0.0f);
+    explainer.Explain(*model, lazy_x.data(), 2, lazy_out.data());  // default atomic
+    Check(!model->deterministic_ready(), "atomic Explain built deterministic metadata");
+  }
   Check(model->storage_mode() == ModelStorageMode::kShared,
         "default model storage is not shared");
   Check(model->elements()->storageMode() == MTL::StorageModeShared &&
@@ -172,6 +188,7 @@ int main(int argc, char** argv) {
   Check(model->deterministic_num_active_cells() == 1,
         "wrong deterministic active-cell count");
   Check(model->deterministic_num_chunks() == 1, "wrong deterministic chunk count");
+  Check(model->deterministic_ready(), "stat query did not build deterministic metadata");
   // 2 partial slots + 1 stage-A chunk sum.
   Check(model->deterministic_scratch_bytes_per_row() == 3 * sizeof(float),
         "wrong deterministic scratch bytes per row");
@@ -252,6 +269,67 @@ int main(int argc, char** argv) {
                     atomic_full.size() * sizeof(float)) == 0,
         "atomic output changed with row tiling");
   explainer.set_atomic_tile_rows(0);
+
+  // Page-aligned, page-padded caller buffers take both zero-copy paths: X is wrapped
+  // on input and the GPU prefills + writes phis directly, with no copy-back.
+  {
+    const size_t page = static_cast<size_t>(getpagesize());
+    void* x_raw = nullptr;
+    void* out_raw = nullptr;
+    Check(posix_memalign(&x_raw, page, page) == 0 &&
+              posix_memalign(&out_raw, page, page) == 0,
+          "aligned test allocation failed");
+    std::memcpy(x_raw, x.data(), x.size() * sizeof(float));
+    const ExplainTimings aligned_tm =
+        explainer.Explain(*model, static_cast<const float*>(x_raw), 5,
+                          static_cast<float*>(out_raw), page, page);
+    Check(aligned_tm.x_zero_copy && aligned_tm.output_zero_copy,
+          "aligned caller buffers did not take the zero-copy paths");
+    const std::vector<float> aligned_out(static_cast<float*>(out_raw),
+                                         static_cast<float*>(out_raw) + 10);
+    CheckClose(aligned_out, expected, 3e-6f, "zero-copy output mismatch");
+    std::free(x_raw);
+    std::free(out_raw);
+  }
+
+  // The deferred metadata must also build when a model's FIRST use is a deterministic
+  // Explain (no stat query beforehand), including the private-storage deferred blit.
+  {
+    explainer.set_accumulation_mode(AccumulationMode::kDeterministic);
+    auto fresh = explainer.Compile(paths, 1, 1, intercept);
+    Check(!fresh->deterministic_ready(), "fresh model built metadata eagerly");
+    std::vector<float> fresh_out(10, -1.0f);
+    explainer.Explain(*fresh, x.data(), 5, fresh_out.data());
+    Check(fresh->deterministic_ready(), "deterministic Explain did not build metadata");
+    CheckClose(fresh_out, expected, 3e-6f, "lazy-built deterministic mismatch");
+    auto fresh_private =
+        explainer.Compile(paths, 1, 1, intercept, ModelStorageMode::kPrivate);
+    std::vector<float> fresh_private_out(10, -2.0f);
+    explainer.Explain(*fresh_private, x.data(), 5, fresh_private_out.data());
+    CheckClose(fresh_private_out, expected, 3e-6f,
+               "lazy private deterministic mismatch");
+    explainer.set_accumulation_mode(AccumulationMode::kAtomic);
+  }
+
+  // A CompiledModel is shareable across Explainers, and the deferred metadata build is
+  // call_once-guarded: two explainers racing the FIRST deterministic use of a shared
+  // model must both succeed with correct output.
+  {
+    Explainer second(ReadFile(argv[1]), Explainer::LibraryKind::kSourceString);
+    explainer.set_accumulation_mode(AccumulationMode::kDeterministic);
+    second.set_accumulation_mode(AccumulationMode::kDeterministic);
+    second.set_rows_per_simdgroup(7);
+    auto shared_model = explainer.Compile(paths, 1, 1, intercept);
+    Check(!shared_model->deterministic_ready(), "shared model built metadata eagerly");
+    std::vector<float> out_a(10, -1.0f), out_b(10, -2.0f);
+    std::thread race([&] { explainer.Explain(*shared_model, x.data(), 5, out_a.data()); });
+    second.Explain(*shared_model, x.data(), 5, out_b.data());
+    race.join();
+    Check(shared_model->deterministic_ready(), "racing build did not complete");
+    CheckClose(out_a, expected, 3e-6f, "shared-model output A mismatch");
+    CheckClose(out_b, expected, 3e-6f, "shared-model output B mismatch");
+    explainer.set_accumulation_mode(AccumulationMode::kAtomic);
+  }
 
   // Force exactly one row per deterministic tile, then verify bitwise repeatability
   // across 100 dispatches and invariance against a single-tile run. This exercises

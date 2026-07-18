@@ -401,6 +401,7 @@ int main(int argc, char** argv) {
     std::vector<size_t> active_scratch_bytes, retained_scratch_bytes, active_tile_rows,
         active_tile_counts, atomic_tile_rows, atomic_tile_counts;
     std::vector<size_t> x_zero_copy;
+    std::vector<size_t> output_zero_copy;
     std::vector<std::string> hashes;
     wall.reserve(options.iterations);
     api_total.reserve(options.iterations);
@@ -414,6 +415,7 @@ int main(int argc, char** argv) {
     atomic_tile_rows.reserve(options.iterations);
     atomic_tile_counts.reserve(options.iterations);
     x_zero_copy.reserve(options.iterations);
+    output_zero_copy.reserve(options.iterations);
     hashes.reserve(options.iterations);
     Differences repeatability;
     Differences accuracy_first;
@@ -433,6 +435,7 @@ int main(int argc, char** argv) {
       atomic_tile_rows.push_back(timing.atomic_tile_rows);
       atomic_tile_counts.push_back(timing.atomic_tiles);
       x_zero_copy.push_back(timing.x_zero_copy ? 1 : 0);
+      output_zero_copy.push_back(timing.output_zero_copy ? 1 : 0);
       // Keep no-oracle performance runs from accepting NaN/Inf output. This scan is
       // deliberately outside the timed Explain call, alongside hashing and accuracy.
       RequireFinite(phis);
@@ -542,6 +545,8 @@ int main(int argc, char** argv) {
     WriteArray(json, encode);
     json << ",\n    \"x_zero_copy_samples\": ";
     WriteSizeArray(json, x_zero_copy);
+    json << ",\n    \"output_zero_copy_samples\": ";
+    WriteSizeArray(json, output_zero_copy);
     json << ",\n    \"deterministic_runtime\": {\"active_scratch_bytes_samples\": ";
     WriteSizeArray(json, active_scratch_bytes);
     json << ", \"retained_scratch_bytes_samples\": ";

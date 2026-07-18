@@ -223,7 +223,8 @@ int main(int argc, char** argv) {
     csv::WritePhis(pos[3], phis, rows, num_groups * (cols + 1));
     std::fprintf(stderr,
                  "[metal_cli] kernel=%s (%s) rows=%zu cols=%zu groups=%zu bins=%zu "
-                 "dispatched=%d zero_copy=%d upload=%.4fs encode=%.4fs gpu=%.4fs "
+                 "dispatched=%d zero_copy=%d output_zero_copy=%d upload=%.4fs "
+                 "encode=%.4fs gpu=%.4fs "
                  "total=%.4fs accumulation=%s threads_per_tg=%u model_storage=%s "
                  "atomic_tile_rows_requested=%zu atomic_tile_rows=%zu atomic_tiles=%zu "
                  "atomic_writes_per_row=%zu simdgroup_writes_per_row=%zu "
@@ -233,6 +234,7 @@ int main(int argc, char** argv) {
                  "deterministic_tile_rows=%zu deterministic_tiles=%zu\n",
                  kernel.c_str(), is_lib ? "metallib" : "runtime-compiled", rows, cols,
                  num_groups, model->num_bins(), int(tm.dispatched), int(tm.x_zero_copy),
+                 int(tm.output_zero_copy),
                  tm.upload_s, tm.encode_s, tm.gpu_s, tm.total_s,
                  accumulation == AccumulationMode::kAtomic
                      ? "atomic"

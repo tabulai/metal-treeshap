@@ -52,6 +52,12 @@ struct Params {
   uint rows_per_simdgroup;    // CUDA kRowsPerWarp analogue (host default tuned to 256)
 };
 
+struct OutputFillParams {     // must match OutputFillParams in metal_host.hpp
+  uint num_rows;
+  uint num_groups;
+  uint num_cols;
+};
+
 struct DeterministicParams {
   uint num_rows;              // rows in the current tile
   uint row_offset;            // first row of the tile in X and phis
@@ -229,6 +235,24 @@ inline void ShapFirstOrderImpl(device const float* X, device const PathElement* 
     OutputAccumulator<kSimdgroupAggregation>::Add(
         phis, p, output_row, e, is_root, phi, lane);
   }
+}
+
+// Output prefill: zeros in the feature columns, per-group bias in the trailing column.
+// Replaces two full CPU passes over the output (memset+bias before dispatch, and — when
+// the host can wrap the caller's buffer — the copy-back after), neither of which
+// overlapped GPU work. The host falls back to the CPU fill for outputs whose element
+// count exceeds this kernel's 32-bit grid coordinate.
+[[max_total_threads_per_threadgroup(256)]]
+kernel void fill_output_bias(
+    device float* phis            [[buffer(0)]],
+    device const float* bias      [[buffer(1)]],
+    constant OutputFillParams& p  [[buffer(2)]],
+    uint tid [[thread_position_in_grid]]) {
+  const ulong total = ulong(p.num_rows) * p.num_groups * (p.num_cols + 1);
+  if (ulong(tid) >= total) return;
+  const uint stride = p.num_cols + 1;
+  const uint col = tid % stride;
+  phis[tid] = (col == p.num_cols) ? bias[(tid / stride) % p.num_groups] : 0.0f;
 }
 
 // Separate entrypoints keep the baseline pipeline free of the SIMD aggregation loop and

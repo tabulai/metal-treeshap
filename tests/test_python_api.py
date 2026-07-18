@@ -296,6 +296,9 @@ class MetalTreeExplainerTests(unittest.TestCase):
         self.assertIsInstance(timings, dict)
         self.assertTrue(timings["dispatched"])
         self.assertTrue(timings["x_zero_copy"])
+        # The binding page-aligns and pads the output, so the GPU always writes the
+        # caller-visible memory directly.
+        self.assertTrue(timings["output_zero_copy"])
         self.assertGreater(timings["total_s"], 0.0)
         np.testing.assert_array_equal(wide, base)
         explainer.trim_buffers()

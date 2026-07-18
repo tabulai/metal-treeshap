@@ -7,6 +7,20 @@ All notable changes to MetalTreeShap are documented here. The project follows
 
 ### Performance
 
+- The output prefill (zeros + per-group bias) now runs on the GPU via a
+  `fill_output_bias` kernel, and the Python binding allocates the result page-aligned
+  and page-padded so the host wraps it `bytesNoCopy`: the GPU writes the caller-visible
+  NumPy memory directly and both per-call CPU passes over the output (the memset+bias
+  fill and the copy-back) disappear, along with the per-call output allocation touch.
+  Outputs beyond the fill kernel's 32-bit grid fall back to the CPU fill.
+  `last_timings` reports the new `output_zero_copy` state.
+- `CompiledModel` no longer builds the deterministic plan and its GPU buffers during
+  compilation: they are constructed on first deterministic use (thread-safe via
+  `std::call_once`; shared-storage models rebuild the plan inputs from the CPU-visible
+  packed element buffer and retain nothing, private-storage models keep a compact
+  12-byte key per element until the deferred blit runs), and the simdgroup statistics
+  scan dropped its per-bin `std::set`. Paired A/B on the stress model: atomic-mode
+  model compile 130.2 ms → 109.7 ms (1.19×).
 - `from_xgboost` model loading is 2.1× faster at stress scale (1.09 s → 0.53 s for the
   500-tree/depth-8 model, 521K path elements, M4 Max): `_pack_paths` now packs flat
   path-element attributes with one comprehension per column (6.9× faster than the
