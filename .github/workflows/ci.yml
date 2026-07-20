@@ -146,4 +146,8 @@ jobs:
         run: |
           python -m build --sdist --outdir dist
           python -m pip install --force-reinstall dist/*.tar.gz
-          python -c "import metal_treeshap; print('sdist install OK', metal_treeshap.__version__)"
+          # A bare import passes even without the native extension (the package
+          # tolerates its absence for source checkouts): require it explicitly,
+          # then run the full public-API suite against the sdist-built install.
+          python -c "from metal_treeshap.explainer import _require_native; _require_native(); print('sdist native extension OK')"
+          METAL_TREESHAP_SOURCE_DIR="$PWD" python tests/test_python_api.py

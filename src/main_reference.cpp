@@ -7,14 +7,16 @@
 //
 // Usage:
 //   reference_cli <paths.csv> <X.csv> <num_groups> <out_fp64.csv> <out_fp32.csv>
-//                 [intercepts] [shuffle_seed]
+//                 <intercepts> [shuffle_seed]
 //
 //   intercepts   comma-separated margin-space intercept per group (e.g. "0.5" or
-//                "0.1,0.2,0.3"); default 0. Added to the bias column with the path bias.
+//                "0.1,0.2,0.3"); REQUIRED — pass explicit zeros for an intercept-free
+//                model. Added to the bias column with the path bias.
 //   shuffle_seed if nonzero, process path groups in a seeded random order — a CPU proxy
 //                for GPU atomic scheduling order, used by the accumulation-order study.
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -55,6 +57,17 @@ int main(int argc, char** argv) {
 
     DenseDataset X{data.data(), rows, cols};
     const auto pp = Preprocess(raw_paths, num_groups, cols);
+    // Same contract as the Metal host (CompiledModel): a combined bias that is not
+    // representable as float would silently poison the fp32 oracle with inf while the
+    // fp64 output stays finite — reject it so the two engines agree on validity.
+    for (size_t g = 0; g < num_groups; ++g) {
+      const double combined = pp.bias[g] + intercepts[g];
+      if (!std::isfinite(combined) ||
+          std::fabs(combined) > static_cast<double>(std::numeric_limits<float>::max())) {
+        throw std::invalid_argument(
+            "path bias + intercept must be finite and representable as float");
+      }
+    }
 
     std::vector<GroupRange> order = CollectGroups(pp);
     if (shuffle_seed != 0) {

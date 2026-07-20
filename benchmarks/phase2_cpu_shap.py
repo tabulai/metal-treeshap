@@ -73,19 +73,15 @@ def normalize_shap_values(values: Any, rows: int, cols: int, groups: int):
     array = np.asarray(values, dtype=np.float32)
     if groups == 1 and array.shape == (rows, cols):
         return array.reshape(rows, 1, cols)
-    if groups > 1 and groups == cols and array.shape == (rows, groups, cols):
-        # Group-major and feature-last layouts are shape-identical here, so a silent
-        # guess could transpose (or fail to transpose) the values and corrupt every
-        # downstream accuracy metric and hash. Refuse rather than guess.
-        raise ValueError(
-            f"ambiguous SHAP output shape {array.shape}: the class count equals the "
-            "feature count, so group-major [row, group, feature] and feature-last "
-            "[row, feature, group] layouts are indistinguishable; use a workload "
-            "whose class count differs from its feature count")
-    if array.shape == (rows, groups, cols):
-        return array
+    # The return TYPE disambiguates the layouts: legacy SHAP returns a per-class list
+    # (handled above), while current shap.TreeExplainer documents multiclass ndarray
+    # output as feature-last [samples, features, outputs]. Check feature-last FIRST so
+    # the classes == features square shape — where both checks would match — follows
+    # the documented contract instead of being misread as group-major.
     if array.shape == (rows, cols, groups):
         return np.transpose(array, (0, 2, 1))
+    if array.shape == (rows, groups, cols):
+        return array
     raise ValueError(
         f"unsupported SHAP output shape {array.shape}; "
         f"expected ({rows},{groups},{cols}) or ({rows},{cols},{groups})"

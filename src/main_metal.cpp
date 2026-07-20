@@ -222,11 +222,12 @@ int main(int argc, char** argv) {
 
     csv::WritePhis(pos[3], phis, rows, num_groups * (cols + 1));
     // Deterministic metadata builds lazily on first deterministic use; querying the
-    // cell count here must not force that build (or its possible failure) onto a
-    // successful atomic run. num_partials is eager and always exact.
-    const bool det_stats_built =
-        accumulation == AccumulationMode::kDeterministic ||
-        model->deterministic_ready();
+    // cell count here must not force that build (or its possible failure) onto a run
+    // that never needed it — including root-only deterministic runs, whose Explain
+    // fast path skips the build entirely. num_partials is eager and always exact;
+    // when the plan was never built the true cell count is either genuinely zero
+    // (no partials) or unreported.
+    const bool det_stats_built = model->deterministic_ready();
     const size_t det_active_cells =
         det_stats_built ? model->deterministic_num_active_cells() : 0;
     std::fprintf(stderr,

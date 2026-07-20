@@ -195,36 +195,48 @@ def materialize_fixture(args: argparse.Namespace) -> None:
         raise SystemExit(
             f"output must not overlap the source fixture directory "
             f"(source={source}, output={output})")
-    _prepare_output(output, args.force)
-
+    # Read and validate every input BEFORE _prepare_output so a rejected fixture never
+    # leaves a partially-written (or --force-emptied) output directory behind.
+    # Frozen test fixtures describe themselves in meta.json; generated workload
+    # directories (hot/stress/wide/multiclass) carry the same fields in workload.json.
     meta_path = source / "meta.json"
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    manifest_path = source / "workload.json"
+    if meta_path.exists():
+        meta, meta_name = json.loads(meta_path.read_text()), meta_path
+    elif manifest_path.exists():
+        meta, meta_name = json.loads(manifest_path.read_text()), manifest_path
+    else:
+        meta, meta_name = {}, meta_path
     model_path = source / "model.json"
     source_paths = source / "paths.csv"
+    matrix_source = source / "X.csv"
+    if not matrix_source.exists():
+        raise SystemExit(f"missing {matrix_source}")
+    extracted = None
     if source_paths.exists():
-        shutil.copyfile(source_paths, output / "paths.csv")
         # Mirror the CLI contract: intercepts must be explicit, never fabricated —
         # a silent zero default hides real bias errors in every downstream run.
         if "intercepts" not in meta:
             raise SystemExit(
-                f"{meta_path} must carry explicit 'intercepts' (pass zeros for an "
+                f"{meta_name} must carry explicit 'intercepts' (pass zeros for an "
                 "intercept-free model) for a paths.csv fixture")
         if "num_groups" not in meta and "groups" not in meta:
             raise SystemExit(
-                f"{meta_path} must carry 'num_groups' for a paths.csv fixture")
+                f"{meta_name} must carry 'num_groups' for a paths.csv fixture")
         num_groups = int(meta.get("num_groups", meta.get("groups", 0)))
         intercepts = [float(value) for value in meta["intercepts"]]
     elif model_path.exists():
         extracted = extract_model(str(model_path))
-        write_paths_csv(extracted.paths, str(output / "paths.csv"))
         num_groups = extracted.num_groups
         intercepts = [float(value) for value in extracted.intercepts]
     else:
         raise SystemExit(f"{source} contains neither paths.csv nor model.json")
 
-    matrix_source = source / "X.csv"
-    if not matrix_source.exists():
-        raise SystemExit(f"missing {matrix_source}")
+    _prepare_output(output, args.force)
+    if extracted is not None:
+        write_paths_csv(extracted.paths, str(output / "paths.csv"))
+    else:
+        shutil.copyfile(source_paths, output / "paths.csv")
     rows, cols = _write_tiled(matrix_source, output / "X.csv", args.rows)
 
     expected_source = source / "expected_contribs.csv"
@@ -441,10 +453,8 @@ def generate_multiclass(args: argparse.Namespace) -> None:
     _validate_xgboost_args(args, minimum_features=8)
     if args.classes < 3:
         raise SystemExit("--classes must be at least 3")
-    if args.classes >= args.features:
-        raise SystemExit(
-            "--classes must be strictly less than --features: classes == features "
-            "produces a SHAP output layout phase2_cpu_shap.py refuses as ambiguous")
+    if args.classes > args.features:
+        raise SystemExit("--classes cannot exceed --features for this target")
     rng = np.random.default_rng(args.seed)
     train_x = rng.normal(size=(args.train_rows, args.features)).astype(np.float32)
     train_x[rng.random(train_x.shape) < args.missing_rate] = np.nan
