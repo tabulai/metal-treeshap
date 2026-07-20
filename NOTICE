@@ -22,3 +22,11 @@ Vendored from https://github.com/apple/metal-cpp at commit
 27c4382b7151d55a51692cdcb27aaa98752240de (METALCPP_VERSION 381.0.0).
 Licensed under the Apache License, Version 2.0. See
 third_party/metal-cpp/LICENSE.txt and third_party/metal-cpp/PINNED_VERSION.md.
+
+Trademarks
+
+Metal is a trademark of Apple Inc., registered in the U.S. and other countries and
+regions. Other names and marks (including XGBoost) are the property of their respective
+owners. These names are used solely to describe interoperability. This project is an
+independent open-source work and is not affiliated with, sponsored, or endorsed by
+Apple Inc. or any other trademark owner.
