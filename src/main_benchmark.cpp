@@ -508,14 +508,19 @@ int main(int argc, char** argv) {
          << ", \"simdgroup_writes_per_row\": " << model->simdgroup_writes_per_row()
          << ", \"deterministic_num_partials\": " << model->deterministic_num_partials();
     // The plan-derived stats build lazily on first deterministic use; reporting must
-    // not force that O(E log E) build (or a late failure) onto a finished atomic run.
-    const bool det_stats_built =
-        options.accumulation == "deterministic" || model->deterministic_ready();
+    // not force that O(E) reconstruction (or a late failure) onto any run that never
+    // built it — atomic runs AND root-only deterministic runs, whose Explain fast
+    // path skips the build. Zero partials implies zero cells/scratch, so that case
+    // is reported truthfully without building.
+    const bool det_stats_built = model->deterministic_ready();
     if (det_stats_built) {
       json << ", \"deterministic_num_active_cells\": "
            << model->deterministic_num_active_cells()
            << ", \"deterministic_scratch_bytes_per_row\": "
            << model->deterministic_scratch_bytes_per_row();
+    } else if (model->deterministic_num_partials() == 0) {
+      json << ", \"deterministic_num_active_cells\": 0"
+           << ", \"deterministic_scratch_bytes_per_row\": 0";
     } else {
       json << ", \"deterministic_num_active_cells\": null"
            << ", \"deterministic_scratch_bytes_per_row\": null";

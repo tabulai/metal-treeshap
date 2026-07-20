@@ -72,22 +72,28 @@ All notable changes to MetalTreeShap are documented here. The project follows
 
 ### Fixed
 
-- External-review batch: fixture materialization refuses ancestor/descendant
-  source/output overlap (`--force` could previously delete the source fixture before
-  reading it) by comparing filesystem identity, so case-variant spellings on
-  case-insensitive APFS cannot bypass the guard; paths.csv fixtures must carry
-  explicit meta intercepts and group counts; multiclass workload generation refuses
-  the ambiguous classes == features shape; aliased X/phis caller buffers force the
-  input through staging so the GPU
-  output prefill cannot corrupt results; the deterministic scratch budget is a strict
-  retained cap across both scratch buffers even when model shapes change; the XGBoost
-  compatibility CI matrix pins a Python each release supports (3.3.0 needs >= 3.12);
-  `normalize_shap_values` refuses the ambiguous classes == features layout instead of
-  silently guessing; all three CLIs now REQUIRE explicit intercepts (a silent zero
-  default hid real bias errors); CLI/benchmark status output no longer forces the lazy
-  deterministic-plan build onto atomic runs; `python -m pytest` collects the test tree
-  (script-style suites self-skip with instructions); and `WritePhis` uses full
-  round-trip precision per element type instead of 12 significant digits.
+- External-review batch (two rounds): fixture materialization refuses
+  ancestor/descendant source/output overlap (`--force` could previously delete the
+  source fixture before reading it) by comparing filesystem identity, so case-variant
+  spellings on case-insensitive APFS cannot bypass the guard; it reads metadata from
+  `meta.json` or a generated workload's `workload.json`, requires explicit intercepts
+  and group counts, and validates everything before touching the output (no partial
+  outputs on rejection); aliased X/phis caller buffers force the input through staging
+  so the GPU output prefill cannot corrupt results; the deterministic scratch budget
+  is a strict retained cap across both scratch buffers even when model shapes change;
+  the XGBoost compatibility CI matrix pins a Python each release supports (3.3.0
+  needs >= 3.12), and the sdist CI step now exercises the native extension and the
+  full API suite rather than a bare import; `normalize_shap_values` resolves the
+  classes == features square ndarray as feature-last per SHAP's documented contract
+  (the return type is the layout discriminator); all three CLIs REQUIRE explicit
+  intercepts (a silent zero default hid real bias errors) and `reference_cli` rejects
+  intercepts whose combined bias is not representable as float (the fp32 oracle could
+  silently emit inf where the Metal host rejects the model); CLI/benchmark status
+  output never forces the lazy deterministic-plan build (including root-only
+  deterministic runs); complex NumPy input is rejected instead of silently dropping
+  imaginary parts; `python -m pytest` collects the tree and skips cleanly in wheel-less
+  or dependency-less environments (native-extension detection, not just import
+  success); and `WritePhis` uses full round-trip precision per element type.
 - Robustness batch from the repository audit: the native explainer no longer holds the
   GIL through shader compilation, preprocessing, and model upload; using an explainer in
   a forked child raises a clear `RuntimeError` instead of crashing in the Metal driver;

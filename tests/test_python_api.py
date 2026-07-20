@@ -15,13 +15,18 @@ import numpy as np
 
 try:
     from metal_treeshap import MetalTreeExplainer
-except ImportError:
-    if __name__ != "__main__":  # pytest without the wheel: skip, don't error
+    from metal_treeshap.explainer import _require_native
+
+    # A source checkout imports successfully with the native extension deliberately
+    # absent (_native is None); detect that too, not just an ImportError.
+    _require_native()
+except (ImportError, RuntimeError):
+    if __name__ != "__main__":  # pytest without a usable wheel: skip, don't error
         import pytest
 
         pytest.skip(
-            "metal-treeshap wheel is not installed; build and install it first "
-            "(see README)",
+            "metal-treeshap with its native extension is not installed; build and "
+            "install the wheel first (see README)",
             allow_module_level=True,
         )
     raise
@@ -259,6 +264,10 @@ class MetalTreeExplainerTests(unittest.TestCase):
         bad_bounds[1]["lower"] = float("nan")
         with self.assertRaisesRegex(ValueError, "non-NaN"):
             MetalTreeExplainer.from_paths(bad_bounds, **kwargs)
+        explainer = MetalTreeExplainer.from_paths(records, **kwargs)
+        with self.assertRaisesRegex(TypeError, "complex"):
+            # An unsafe cast would silently discard the imaginary parts.
+            explainer.explain(np.zeros((2, 31), dtype=np.complex64))
         with tempfile.TemporaryDirectory() as directory:
             fake = Path(directory) / "fake.metallib"
             fake.write_bytes(b"not a metallib")

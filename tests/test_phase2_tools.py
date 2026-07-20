@@ -216,15 +216,14 @@ def main() -> None:
         np.testing.assert_array_equal(normalize_shap_values(new, 2, 3, 2), normalized)
         checks += 2
 
-        # classes == features: group-major and feature-last layouts are
-        # shape-identical, so normalization must refuse rather than silently guess
-        # (a wrong guess corrupts every downstream accuracy metric and hash).
-        square = np.zeros((4, 3, 3), dtype=np.float32)
-        try:
-            normalize_shap_values(square, 4, 3, 3)
-            raise AssertionError("ambiguous square SHAP layout was accepted")
-        except ValueError as error:
-            assert "ambiguous" in str(error)
+        # classes == features: the square ndarray must follow SHAP's documented
+        # feature-last [samples, features, outputs] contract (the return TYPE is the
+        # discriminator — legacy layouts arrive as per-class lists), so it is
+        # transposed, never misread as group-major.
+        square = np.arange(4 * 3 * 3, dtype=np.float32).reshape(4, 3, 3)
+        np.testing.assert_array_equal(
+            normalize_shap_values(square, 4, 3, 3), np.transpose(square, (0, 2, 1))
+        )
         checks += 1
 
         # Fixture materialization must refuse ancestor/descendant source/output
@@ -253,6 +252,36 @@ def main() -> None:
             assert "must not overlap" in overlap.stderr, (bad_output, overlap.stderr)
         assert (fixture_src / "paths.csv").exists(), "overlap check deleted the source"
         checks += len(bad_outputs) + 1
+
+        # Generated workload directories carry their metadata in workload.json;
+        # fixture materialization must consume it (regression: requiring meta.json
+        # broke hot/stress/wide -> fixture and left partial outputs behind).
+        materialized_out = root / "materialized-wide"
+        run(
+            str(BENCHMARKS / "phase2_workloads.py"), "fixture", str(wide),
+            str(materialized_out), "--force",
+        )
+        materialized = json.loads((materialized_out / "workload.json").read_text())
+        source_manifest = json.loads((wide / "workload.json").read_text())
+        assert materialized["intercepts"] == source_manifest["intercepts"]
+        assert (materialized_out / "paths.csv").exists()
+        assert (materialized_out / "X.csv").exists()
+        # A rejected fixture must leave NO partial output (validation precedes
+        # _prepare_output): a paths.csv source without any manifest is refused cleanly.
+        bare_src = root / "bare-fixture"
+        bare_src.mkdir()
+        (bare_src / "paths.csv").write_text(
+            "path_idx,feature_idx,group,lower,upper,is_missing,zero_fraction,v\n"
+        )
+        (bare_src / "X.csv").write_text("0.0\n")
+        bare_out = root / "bare-out"
+        bare = subprocess.run(
+            [sys.executable, str(BENCHMARKS / "phase2_workloads.py"), "fixture",
+             str(bare_src), str(bare_out)],
+            capture_output=True, text=True)
+        assert bare.returncode != 0 and "intercepts" in bare.stderr
+        assert not bare_out.exists(), "rejected fixture left a partial output"
+        checks += 5
 
         # Optional SHAP absence/disable is a successful, structured skip.
         disabled = root / "shap-disabled.json"

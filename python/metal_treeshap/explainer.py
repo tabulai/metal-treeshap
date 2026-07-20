@@ -225,6 +225,11 @@ class MetalTreeExplainer:
             # a masked entry means "missing", which is NaN in the XGBoost contract.
             matrix = matrix.astype(np.float32).filled(np.nan)
         matrix = np.asarray(matrix)
+        if np.issubdtype(matrix.dtype, np.complexfloating):
+            # The unsafe cast below would silently discard imaginary parts.
+            raise TypeError(
+                "complex input is not supported; take the real part explicitly if "
+                "that is intended")
         if matrix.ndim != 2:
             raise ValueError("X must be a 2-D array")
         if matrix.shape[1] != self.num_features:

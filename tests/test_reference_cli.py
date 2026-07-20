@@ -47,6 +47,10 @@ def main() -> None:
         # Intercepts are REQUIRED (the host API contract): omitting them used to
         # silently assume zeros and hide real bias errors.
         expect_failure(base + ["1", out64, out32], "usage:")
+        # An intercept beyond float range must be rejected like the Metal host does:
+        # it used to exit 0 with a finite fp64 oracle and inf in the fp32 output.
+        expect_failure(base + ["1", out64, out32, "1e39"],
+                       "representable as float")
 
         subprocess.run(base + ["1", out64, out32, "0.25"], check=True,
                        capture_output=True)
@@ -56,7 +60,7 @@ def main() -> None:
         np.testing.assert_allclose(np.loadtxt(out32, delimiter=","), expected,
                                    rtol=0.0, atol=0.0)
 
-    print("ALL 8 REFERENCE CLI VALIDATION TESTS PASSED")
+    print("ALL 9 REFERENCE CLI VALIDATION TESTS PASSED")
 
 
 if __name__ == "__main__":
