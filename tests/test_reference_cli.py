@@ -35,15 +35,18 @@ def main() -> None:
         open(empty_matrix, "w", encoding="utf-8").close()
 
         base = [cli, paths, matrix]
-        expect_failure(base + ["junk", out64, out32], "invalid num_groups")
-        expect_failure(base + ["0", out64, out32], "num_groups must be > 0")
+        expect_failure(base + ["junk", out64, out32, "0"], "invalid num_groups")
+        expect_failure(base + ["0", out64, out32, "0"], "num_groups must be > 0")
         expect_failure(base + ["1", out64, out32, "nan"], "intercepts must be finite")
         expect_failure(base + ["1", out64, out32, "0", "7junk"],
                        "invalid shuffle_seed")
-        expect_failure([cli, paths, empty_matrix, "1", out64, out32],
+        expect_failure([cli, paths, empty_matrix, "1", out64, out32, "0"],
                        "X.csv must contain at least one row")
-        expect_failure(base + ["1", os.path.join(td, "missing", "o64.csv"), out32],
+        expect_failure(base + ["1", os.path.join(td, "missing", "o64.csv"), out32, "0"],
                        "cannot open output")
+        # Intercepts are REQUIRED (the host API contract): omitting them used to
+        # silently assume zeros and hide real bias errors.
+        expect_failure(base + ["1", out64, out32], "usage:")
 
         subprocess.run(base + ["1", out64, out32, "0.25"], check=True,
                        capture_output=True)
@@ -53,7 +56,7 @@ def main() -> None:
         np.testing.assert_allclose(np.loadtxt(out32, delimiter=","), expected,
                                    rtol=0.0, atol=0.0)
 
-    print("ALL 7 REFERENCE CLI VALIDATION TESTS PASSED")
+    print("ALL 8 REFERENCE CLI VALIDATION TESTS PASSED")
 
 
 if __name__ == "__main__":

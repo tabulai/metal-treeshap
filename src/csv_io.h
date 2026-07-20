@@ -213,7 +213,9 @@ inline void WritePhis(const std::string& file, const std::vector<T>& phis, size_
   }
   std::ofstream out(file);
   if (!out) throw std::runtime_error("cannot open output " + file);
-  out.precision(12);
+  // Round-trip precision for the element type: 12 digits silently degraded the fp64
+  // oracle (e.g. 1000000000000.25 became 1e+12).
+  out.precision(std::numeric_limits<T>::max_digits10);
   for (size_t r = 0; r < rows; r++) {
     for (size_t c = 0; c < per_row; c++) {
       out << phis[r * per_row + c] << (c + 1 == per_row ? "" : ",");

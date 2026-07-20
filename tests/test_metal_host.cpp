@@ -292,6 +292,59 @@ int main(int argc, char** argv) {
     std::free(out_raw);
   }
 
+  // Aliased caller buffers: when the X and phis ranges overlap, X must fall back to
+  // staging so the GPU output prefill cannot clobber the input mid-execution. The
+  // aliased region holds X at the front of the (larger) output range.
+  {
+    const size_t page = static_cast<size_t>(getpagesize());
+    void* alias_raw = nullptr;
+    Check(posix_memalign(&alias_raw, page, page) == 0, "alias allocation failed");
+    float* alias = static_cast<float*>(alias_raw);
+    std::memcpy(alias, x.data(), x.size() * sizeof(float));  // X = first 5 floats
+    const ExplainTimings alias_tm =
+        explainer.Explain(*model, alias, 5, alias, page, page);
+    Check(!alias_tm.x_zero_copy, "overlapping X was wrapped zero-copy");
+    Check(alias_tm.output_zero_copy, "aliased output lost its zero-copy wrap");
+    const std::vector<float> alias_out(alias, alias + 10);
+    CheckClose(alias_out, expected, 3e-6f, "aliased-buffer output mismatch");
+    std::free(alias_raw);
+  }
+
+  // The deterministic scratch budget is a strict RETAINED cap across both scratch
+  // buffers. Switching from a partials-heavy model to a chunks-heavy one must not
+  // retain more than the budget (the buffers grow independently).
+  {
+    explainer.set_accumulation_mode(AccumulationMode::kDeterministic);
+    // Model A: 3 paths on one (group, feature) cell -> 3 partials, 1 chunk (12+4 B/row).
+    std::vector<PathElement> paths_a;
+    for (uint64_t p = 0; p < 3; ++p) {
+      paths_a.push_back(Element(p, -1, 1.0, 1.0f));
+      paths_a.push_back(Element(p, 0, 0.5, 1.0f,
+                                XgboostSplitCondition(0.0f, 1.0f, true)));
+    }
+    // Model B: 1 path over two features -> 2 partials, 2 cells, 2 chunks (8+8 B/row).
+    const std::vector<PathElement> paths_b{
+        Element(0, -1, 1.0, 1.0f),
+        Element(0, 0, 0.5, 1.0f, XgboostSplitCondition(0.0f, 1.0f, true)),
+        Element(0, 1, 0.5, 1.0f, XgboostSplitCondition(0.0f, 1.0f, true)),
+    };
+    auto model_a = explainer.Compile(paths_a, 1, 1, {0.0});
+    auto model_b = explainer.Compile(paths_b, 1, 2, {0.0});
+    const size_t budget = 16;  // one row of model A (16 B) and of model B (16 B)
+    explainer.set_deterministic_scratch_budget_bytes(budget);
+    std::vector<float> xa{0.5f}, out_a(2, 0.0f);
+    explainer.Explain(*model_a, xa.data(), 1, out_a.data());
+    Check(explainer.deterministic_scratch_capacity_bytes() <= budget,
+          "model A scratch exceeded the budget");
+    std::vector<float> xb{0.5f, 0.5f}, out_b(3, 0.0f);
+    explainer.Explain(*model_b, xb.data(), 1, out_b.data());
+    Check(explainer.deterministic_scratch_capacity_bytes() <= budget,
+          "retained scratch exceeded the budget after a model-shape switch");
+    explainer.set_deterministic_scratch_budget_bytes(
+        Explainer::kDefaultDeterministicScratchBudgetBytes);
+    explainer.set_accumulation_mode(AccumulationMode::kAtomic);
+  }
+
   // The deferred metadata must also build when a model's FIRST use is a deterministic
   // Explain (no stat query beforehand), including the private-storage deferred blit.
   {

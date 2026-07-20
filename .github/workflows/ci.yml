@@ -61,12 +61,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        xgboost: ["2.0.3", "3.1.2", "3.3.0"]
+        # Each XGBoost release pins a Python it actually supports:
+        # 3.3.0 requires Python >= 3.12, so a single shared 3.11 pin cannot work.
+        include:
+          - xgboost: "2.0.3"
+            python: "3.11"
+          - xgboost: "3.1.2"
+            python: "3.11"
+          - xgboost: "3.3.0"
+            python: "3.12"
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: actions/setup-python@v6.3.0
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python }}
           cache: pip
       - name: Install compatibility dependencies
         run: >-

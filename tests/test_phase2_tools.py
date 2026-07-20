@@ -14,8 +14,18 @@ import sys
 import tempfile
 from pathlib import Path
 
-import numpy as np
-import jsonschema
+try:
+    import numpy as np
+    import jsonschema
+except ImportError:
+    if __name__ != "__main__":  # pytest without the tooling deps: skip, don't error
+        import pytest
+
+        pytest.skip(
+            "the phase2 tooling suite requires numpy and jsonschema",
+            allow_module_level=True,
+        )
+    raise
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARKS = ROOT / "benchmarks"
@@ -205,6 +215,44 @@ def main() -> None:
         new = np.stack(old, axis=2)
         np.testing.assert_array_equal(normalize_shap_values(new, 2, 3, 2), normalized)
         checks += 2
+
+        # classes == features: group-major and feature-last layouts are
+        # shape-identical, so normalization must refuse rather than silently guess
+        # (a wrong guess corrupts every downstream accuracy metric and hash).
+        square = np.zeros((4, 3, 3), dtype=np.float32)
+        try:
+            normalize_shap_values(square, 4, 3, 3)
+            raise AssertionError("ambiguous square SHAP layout was accepted")
+        except ValueError as error:
+            assert "ambiguous" in str(error)
+        checks += 1
+
+        # Fixture materialization must refuse ancestor/descendant source/output
+        # overlap: --force recursively deletes the output, so an output containing
+        # the source would destroy the fixture before it is ever read.
+        fixture_src = root / "overlap-fixture" / "src"
+        fixture_src.mkdir(parents=True)
+        (fixture_src / "paths.csv").write_text(
+            "path_idx,feature_idx,group,lower,upper,is_missing,zero_fraction,v\n"
+            "0,-1,0,-inf,inf,1,1.0,0.5\n"
+        )
+        (fixture_src / "X.csv").write_text("0.0\n")
+        bad_outputs = [fixture_src.parent, fixture_src, fixture_src / "nested"]
+        # On case-insensitive filesystems (macOS APFS default), a case-variant
+        # spelling of an ancestor is the SAME directory; the guard compares
+        # filesystem identity so it must catch that spelling too.
+        case_variant = fixture_src.parent.with_name(fixture_src.parent.name.upper())
+        if case_variant.exists():
+            bad_outputs.append(case_variant)
+        for bad_output in bad_outputs:
+            overlap = subprocess.run(
+                [sys.executable, str(BENCHMARKS / "phase2_workloads.py"), "fixture",
+                 str(fixture_src), str(bad_output), "--force"],
+                capture_output=True, text=True)
+            assert overlap.returncode != 0, bad_output
+            assert "must not overlap" in overlap.stderr, (bad_output, overlap.stderr)
+        assert (fixture_src / "paths.csv").exists(), "overlap check deleted the source"
+        checks += len(bad_outputs) + 1
 
         # Optional SHAP absence/disable is a successful, structured skip.
         disabled = root / "shap-disabled.json"

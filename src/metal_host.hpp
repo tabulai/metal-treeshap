@@ -799,8 +799,17 @@ class Explainer {
     const auto tu0 = chr::steady_clock::now();
     MTL::Buffer* x_wrapped = nullptr;
     const size_t page = static_cast<size_t>(getpagesize());
+    // Aliased caller buffers: with both zero-copy wraps active, the GPU output prefill
+    // would clobber X while the kernels still read it. The staged paths never had this
+    // hazard (X was copied out first), so preserve that contract by forcing X through
+    // staging whenever the logical ranges intersect; the output wrap stays safe because
+    // the GPU then reads only the staged copy.
+    const uintptr_t x_lo = reinterpret_cast<uintptr_t>(X);
+    const uintptr_t out_lo = reinterpret_cast<uintptr_t>(phis_out);
+    const bool xy_overlap =
+        x_lo < out_lo + phis_bytes && out_lo < x_lo + x_bytes;
     size_t wrap_bytes = 0;
-    if ((reinterpret_cast<uintptr_t>(X) % page) == 0) {
+    if (!xy_overlap && (reinterpret_cast<uintptr_t>(X) % page) == 0) {
       if (x_bytes % page == 0) {
         wrap_bytes = x_bytes;
       } else if (x_capacity_bytes >= x_bytes) {
@@ -911,6 +920,27 @@ class Explainer {
       const size_t chunk_sum_bytes = detail_host::CheckedMul(
           detail_host::CheckedMul(tile_rows, det_chunks, "deterministic chunk sums"),
           sizeof(float), "deterministic chunk-sum bytes");
+      // The budget is a strict RETAINED cap across both scratch buffers. They grow
+      // independently, so switching model shapes could otherwise retain more than the
+      // budget even though each active tile fits (e.g. a partials-heavy model followed
+      // by a chunks-heavy one): drop both first whenever the prospective retained total
+      // would exceed the cap — the fresh pair is within budget by DeterministicTileRows.
+      const size_t retained_partials =
+          deterministic_partials_buf_ ? deterministic_partials_buf_->length() : 0;
+      const size_t retained_chunks =
+          deterministic_chunk_sums_buf_ ? deterministic_chunk_sums_buf_->length() : 0;
+      if (std::max(retained_partials, partials_bytes) +
+              std::max(retained_chunks, chunk_sum_bytes) >
+          deterministic_scratch_budget) {
+        if (deterministic_partials_buf_) {
+          deterministic_partials_buf_->release();
+          deterministic_partials_buf_ = nullptr;
+        }
+        if (deterministic_chunk_sums_buf_) {
+          deterministic_chunk_sums_buf_->release();
+          deterministic_chunk_sums_buf_ = nullptr;
+        }
+      }
       EnsureCapacity(&deterministic_partials_buf_, partials_bytes,
                      MTL::ResourceStorageModePrivate);
       EnsureCapacity(&deterministic_chunk_sums_buf_, chunk_sum_bytes,

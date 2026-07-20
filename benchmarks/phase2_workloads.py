@@ -174,8 +174,27 @@ def materialize_fixture(args: argparse.Namespace) -> None:
     output = Path(args.output).resolve()
     if not source.is_dir():
         raise SystemExit(f"fixture directory does not exist: {source}")
-    if output == source:
-        raise SystemExit("output must differ from the source fixture")
+    # Reject ANY ancestor/descendant overlap, not just exact equality: --force
+    # recursively deletes the output, so an output that contains the source would
+    # delete the fixture before it is read. Compare FILESYSTEM IDENTITY (st_dev,
+    # st_ino), not lexical paths: macOS APFS is case-insensitive by default, so
+    # differently-cased spellings of the same directory defeat string comparison.
+    def _fs_id(path: Path) -> tuple[int, int]:
+        stat = path.stat()
+        return (stat.st_dev, stat.st_ino)
+
+    source_chain = {_fs_id(node) for node in (source, *source.parents)}
+    probe = output
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent  # deepest existing ancestor: what rmtree/mkdir touch
+    output_chain = ({_fs_id(node) for node in (probe, *probe.parents)}
+                    if probe.exists() else set())
+    # source inside (existing part of) output, or output equal to / containing source.
+    if _fs_id(source) in output_chain or (
+            output.exists() and _fs_id(output) in source_chain):
+        raise SystemExit(
+            f"output must not overlap the source fixture directory "
+            f"(source={source}, output={output})")
     _prepare_output(output, args.force)
 
     meta_path = source / "meta.json"
@@ -184,10 +203,17 @@ def materialize_fixture(args: argparse.Namespace) -> None:
     source_paths = source / "paths.csv"
     if source_paths.exists():
         shutil.copyfile(source_paths, output / "paths.csv")
-        num_groups = int(meta.get("num_groups", meta.get("groups", 1)))
-        intercepts = [
-            float(value) for value in meta.get("intercepts", [0.0] * num_groups)
-        ]
+        # Mirror the CLI contract: intercepts must be explicit, never fabricated —
+        # a silent zero default hides real bias errors in every downstream run.
+        if "intercepts" not in meta:
+            raise SystemExit(
+                f"{meta_path} must carry explicit 'intercepts' (pass zeros for an "
+                "intercept-free model) for a paths.csv fixture")
+        if "num_groups" not in meta and "groups" not in meta:
+            raise SystemExit(
+                f"{meta_path} must carry 'num_groups' for a paths.csv fixture")
+        num_groups = int(meta.get("num_groups", meta.get("groups", 0)))
+        intercepts = [float(value) for value in meta["intercepts"]]
     elif model_path.exists():
         extracted = extract_model(str(model_path))
         write_paths_csv(extracted.paths, str(output / "paths.csv"))
@@ -415,8 +441,10 @@ def generate_multiclass(args: argparse.Namespace) -> None:
     _validate_xgboost_args(args, minimum_features=8)
     if args.classes < 3:
         raise SystemExit("--classes must be at least 3")
-    if args.classes > args.features:
-        raise SystemExit("--classes cannot exceed --features for this target")
+    if args.classes >= args.features:
+        raise SystemExit(
+            "--classes must be strictly less than --features: classes == features "
+            "produces a SHAP output layout phase2_cpu_shap.py refuses as ambiguous")
     rng = np.random.default_rng(args.seed)
     train_x = rng.normal(size=(args.train_rows, args.features)).astype(np.float32)
     train_x[rng.random(train_x.shape) < args.missing_rate] = np.nan

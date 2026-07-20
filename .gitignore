@@ -22,3 +22,4 @@ __pycache__/
 # scratch
 _to_delete/
 *.tmp
+.ipynb_checkpoints/

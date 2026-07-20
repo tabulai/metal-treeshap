@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """Source-checkout fallbacks that do not require a built native extension."""
 
+if __name__ != "__main__":  # pytest collection: needs the native extension ABSENT
+    import pytest
+
+    pytest.skip(
+        "source-only script: run `PYTHONPATH=python:. python tests/test_python_source.py`"
+        " with the wheel uninstalled",
+        allow_module_level=True,
+    )
+
 import builtins
 
 from metal_treeshap import MetalTreeExplainer
@@ -22,7 +31,7 @@ assert "kernel void shap_first_order" in source
 
 # The wheel installs this module under metal_treeshap; source checkouts intentionally
 # reuse the repository implementation directly.
-from tools.extract_paths import extract_model
+from tools.extract_paths import extract_model  # noqa: E402  (mid-file on purpose)
 
 assert callable(extract_model)
 

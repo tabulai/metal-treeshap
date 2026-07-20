@@ -124,6 +124,10 @@ phis = explainer.shap_values(X)
 macOS 13+ on ARM64 and runtime-compiles the bundled shader when an offline metallib is absent.
 `shap_values(X)`, `explain(X)`, and calling the explainer directly have the same output contract.
 
+Executed example notebooks — including a paired CPU-vs-GPU benchmark of XGBoost's
+built-in `pred_contribs` against the Metal engine — live in
+[`examples/`](examples/README.md).
+
 NumPy arrays and pandas `DataFrame` objects are accepted. DataFrame columns are consumed by
 position: pass them in the same feature order used to train the model. `MetalTreeExplainer` does
 not currently reorder columns against XGBoost feature names. Nullable pandas values are converted
@@ -185,3 +189,11 @@ xgboost model (or saved .json) ──tools/extract_paths.py──► paths + per
                     └──────── numerically matched phis ─────────────┘
                     (golden + fixture + property + performance + wheel suites; Phase 2.1)
 ```
+
+## Trademarks
+
+Metal is a trademark of Apple Inc., registered in the U.S. and other countries and
+regions. Other names and marks (including XGBoost) are the property of their respective
+owners. These names are used solely to describe interoperability. This project is an
+independent open-source work and is not affiliated with, sponsored, or endorsed by
+Apple Inc. or any other trademark owner.
