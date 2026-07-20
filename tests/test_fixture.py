@@ -27,6 +27,14 @@ Usage: python tests/test_fixture.py [path/to/reference_cli] [--metal-cli path/to
 
 from __future__ import annotations
 
+if __name__ != "__main__":  # pytest collection: this is an argument-driven script
+    import pytest
+
+    pytest.skip(
+        "script-style suite: run `python tests/test_fixture.py [reference_cli ...]`",
+        allow_module_level=True,
+    )
+
 import json
 import os
 import subprocess

@@ -3,7 +3,7 @@
 // Same CSV contract as reference_cli, so tests/test_fixture.py can run both engines
 // over the frozen fixtures and diff them (set METAL_CLI=... or pass --metal-cli):
 //
-//   metal_cli <paths.csv> <X.csv> <num_groups> <out.csv> [intercepts]
+//   metal_cli <paths.csv> <X.csv> <num_groups> <out.csv> <intercepts>
 //             [--kernel <treeshap.metallib | treeshap.metal>]
 //             [--rows-per-simdgroup N]
 //             [--threads-per-threadgroup 32|64|128|256]
@@ -178,15 +178,17 @@ int main(int argc, char** argv) {
         pos.push_back(a);
       }
     }
-    if (pos.size() < 4 || pos.size() > 5) {
+    if (pos.size() != 5) {
       std::cerr << "usage: " << argv[0]
-                << " <paths.csv> <X.csv> <num_groups> <out.csv> [intercepts]"
+                << " <paths.csv> <X.csv> <num_groups> <out.csv> <intercepts>"
                    " [--kernel <lib-or-source>] [--rows-per-simdgroup N]"
                    " [--threads-per-threadgroup 32|64|128|256]"
                    " [--atomic-tile-rows N]"
                    " [--accumulation atomic|simdgroup|deterministic]"
                    " [--deterministic-scratch-mib N]"
-                   " [--model-storage shared|private]\n";
+                   " [--model-storage shared|private]\n"
+                   "  intercepts: comma-separated margin-space value per group; REQUIRED —"
+                   " pass explicit zeros (e.g. \"0\") for an intercept-free model\n";
       return 2;
     }
 
@@ -197,9 +199,7 @@ int main(int argc, char** argv) {
     if (cols == 0) throw std::invalid_argument("X.csv must contain at least one column");
     const size_t num_groups = csv::ParseSize(pos[2], "num_groups");
     if (num_groups == 0) throw std::invalid_argument("num_groups must be > 0");
-    const std::vector<double> intercepts =
-        (pos.size() >= 5) ? csv::ParseIntercepts(pos[4], num_groups)
-                          : std::vector<double>(num_groups, 0.0);
+    const std::vector<double> intercepts = csv::ParseIntercepts(pos[4], num_groups);
 
     const std::string kernel = ResolveKernel(kernel_arg);
     const bool is_lib = EndsWith(kernel, ".metallib");
@@ -221,6 +221,14 @@ int main(int argc, char** argv) {
     ExplainTimings tm = explainer.Explain(*model, data.data(), rows, phis.data());
 
     csv::WritePhis(pos[3], phis, rows, num_groups * (cols + 1));
+    // Deterministic metadata builds lazily on first deterministic use; querying the
+    // cell count here must not force that build (or its possible failure) onto a
+    // successful atomic run. num_partials is eager and always exact.
+    const bool det_stats_built =
+        accumulation == AccumulationMode::kDeterministic ||
+        model->deterministic_ready();
+    const size_t det_active_cells =
+        det_stats_built ? model->deterministic_num_active_cells() : 0;
     std::fprintf(stderr,
                  "[metal_cli] kernel=%s (%s) rows=%zu cols=%zu groups=%zu bins=%zu "
                  "dispatched=%d zero_copy=%d output_zero_copy=%d upload=%.4fs "
@@ -245,7 +253,7 @@ int main(int argc, char** argv) {
                  atomic_tile_rows, tm.atomic_tile_rows, tm.atomic_tiles,
                  model->atomic_writes_per_row(), model->simdgroup_writes_per_row(),
                  model->deterministic_num_partials(),
-                 model->deterministic_num_active_cells(), deterministic_scratch_mib,
+                 det_active_cells, deterministic_scratch_mib,
                  tm.deterministic_scratch_bytes,
                  tm.deterministic_scratch_capacity_bytes,
                  tm.deterministic_tile_rows, tm.deterministic_tiles);

@@ -29,6 +29,14 @@ Usage: python tests/test_vs_xgboost.py [path/to/reference_cli] [--update-fixture
 
 from __future__ import annotations
 
+if __name__ != "__main__":  # pytest collection: this is an argument-driven script
+    import pytest
+
+    pytest.skip(
+        "script-style suite: run `python tests/test_vs_xgboost.py [reference_cli]`",
+        allow_module_level=True,
+    )
+
 import hashlib
 import json
 import os

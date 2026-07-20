@@ -32,10 +32,13 @@
 using namespace metal_treeshap;
 
 int main(int argc, char** argv) {
-  if (argc < 6 || argc > 8) {
+  if (argc < 7 || argc > 8) {
     std::cerr << "usage: " << argv[0]
               << " <paths.csv> <X.csv> <num_groups> <out_fp64.csv> <out_fp32.csv>"
-                 " [intercepts] [shuffle_seed]\n";
+                 " <intercepts> [shuffle_seed]\n"
+                 "  intercepts: comma-separated margin-space value per group; REQUIRED —\n"
+                 "  pass explicit zeros (e.g. \"0\") for an intercept-free model, matching\n"
+                 "  the host API contract (silent zero defaults hid real bias errors)\n";
     return 2;
   }
   try {
@@ -46,9 +49,7 @@ int main(int argc, char** argv) {
     if (cols == 0) throw std::invalid_argument("X.csv must contain at least one column");
     const size_t num_groups = csv::ParseSize(argv[3], "num_groups");
     if (num_groups == 0) throw std::invalid_argument("num_groups must be > 0");
-    const std::vector<double> intercepts =
-        (argc >= 7) ? csv::ParseIntercepts(argv[6], num_groups)
-                    : std::vector<double>(num_groups, 0.0);
+    const std::vector<double> intercepts = csv::ParseIntercepts(argv[6], num_groups);
     const uint64_t shuffle_seed =
         (argc >= 8) ? csv::ParseU64(argv[7], "shuffle_seed") : 0;
 

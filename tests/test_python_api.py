@@ -13,7 +13,18 @@ from pathlib import Path
 
 import numpy as np
 
-from metal_treeshap import MetalTreeExplainer
+try:
+    from metal_treeshap import MetalTreeExplainer
+except ImportError:
+    if __name__ != "__main__":  # pytest without the wheel: skip, don't error
+        import pytest
+
+        pytest.skip(
+            "metal-treeshap wheel is not installed; build and install it first "
+            "(see README)",
+            allow_module_level=True,
+        )
+    raise
 
 
 ROOT = Path(os.environ.get("METAL_TREESHAP_SOURCE_DIR", Path(__file__).resolve().parents[1]))

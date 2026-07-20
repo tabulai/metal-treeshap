@@ -32,7 +32,10 @@ def main() -> None:
             )
         open(matrix, "w", encoding="utf-8").close()
 
-        base = [cli, paths, matrix, "1", output]
+        base = [cli, paths, matrix, "1", output, "0"]
+        # Intercepts are REQUIRED (the host API contract): omitting them used to
+        # silently assume zeros and hide real bias errors.
+        expect_failure([cli, paths, matrix, "1", output], "usage:")
         expect_failure(base + ["--rows-per-simdgroup", "0"],
                        "rows_per_simdgroup must be > 0")
         expect_failure(base + ["--rows-per-simdgroup", "7junk"],
@@ -61,7 +64,7 @@ def main() -> None:
                        "X.csv must contain at least one row")
         expect_failure(base, "X.csv must contain at least one row")
 
-    print("ALL 13 METAL CLI VALIDATION TESTS PASSED")
+    print("ALL 14 METAL CLI VALIDATION TESTS PASSED")
 
 
 if __name__ == "__main__":

@@ -127,7 +127,8 @@ size_t ParsePositiveSize(const std::string& value, const char* what) {
 void Usage(const char* program) {
   std::cerr
       << "usage: " << program << " <paths.csv> <X.csv> <num_groups> [options]\n"
-      << "  --intercepts v[,v...]       margin-space intercepts (default zeros)\n"
+      << "  --intercepts v[,v...]       margin-space intercepts; REQUIRED — pass\n"
+         "                              explicit zeros for an intercept-free model\n"
       << "  --kernel path               .metallib or .metal source\n"
       << "  --expected path             expected attribution CSV for error metrics\n"
       << "  --output-json path|-        destination (default stdout)\n"
@@ -222,9 +223,12 @@ Options ParseArgs(int argc, char** argv) {
       throw std::invalid_argument("unknown option: " + arg);
     }
   }
-  options.intercepts = intercept_set
-                           ? csv::ParseIntercepts(intercept_arg, options.num_groups)
-                           : std::vector<double>(options.num_groups, 0.0);
+  if (!intercept_set) {
+    throw std::invalid_argument(
+        "--intercepts is required (pass explicit zeros for an intercept-free model); "
+        "a silent zero default previously hid real bias errors");
+  }
+  options.intercepts = csv::ParseIntercepts(intercept_arg, options.num_groups);
   options.kernel = ResolveKernel(options.kernel);
   return options;
 }
@@ -502,12 +506,21 @@ int main(int argc, char** argv) {
          << ", \"packed_bins\": " << model->num_bins()
          << ", \"atomic_writes_per_row\": " << model->atomic_writes_per_row()
          << ", \"simdgroup_writes_per_row\": " << model->simdgroup_writes_per_row()
-         << ", \"deterministic_num_partials\": " << model->deterministic_num_partials()
-         << ", \"deterministic_num_active_cells\": "
-         << model->deterministic_num_active_cells()
-         << ", \"deterministic_scratch_bytes_per_row\": "
-         << model->deterministic_scratch_bytes_per_row()
-         << ", \"theoretical_write_reduction\": "
+         << ", \"deterministic_num_partials\": " << model->deterministic_num_partials();
+    // The plan-derived stats build lazily on first deterministic use; reporting must
+    // not force that O(E log E) build (or a late failure) onto a finished atomic run.
+    const bool det_stats_built =
+        options.accumulation == "deterministic" || model->deterministic_ready();
+    if (det_stats_built) {
+      json << ", \"deterministic_num_active_cells\": "
+           << model->deterministic_num_active_cells()
+           << ", \"deterministic_scratch_bytes_per_row\": "
+           << model->deterministic_scratch_bytes_per_row();
+    } else {
+      json << ", \"deterministic_num_active_cells\": null"
+           << ", \"deterministic_scratch_bytes_per_row\": null";
+    }
+    json << ", \"theoretical_write_reduction\": "
          << (model->simdgroup_writes_per_row() == 0
                  ? 0.0
                  : static_cast<double>(model->atomic_writes_per_row()) /

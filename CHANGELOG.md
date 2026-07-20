@@ -49,6 +49,13 @@ All notable changes to MetalTreeShap are documented here. The project follows
 
 ### Added
 
+- Trademark attribution for Metal (Apple Inc.) and XGBoost in the README and NOTICE,
+  with an explicit no-affiliation statement, following Apple's international credit-line
+  format.
+- An `examples/` folder with three executed Jupyter notebooks: a quickstart, a
+  paired/interleaved benchmark of XGBoost's CPU `pred_contribs` against the Metal
+  engine (with accuracy gates and setup-cost break-even), and a tour of the
+  accumulation modes, bit-repeatability, and tuning knobs.
 - `MetalTreeExplainer.last_timings` exposes the native timing/dispatch metadata of the
   most recent call (GPU time, zero-copy status, atomic/deterministic tiling) — the
   signals needed to actually use the tuning knobs — and `trim_buffers()` releases the
@@ -65,6 +72,22 @@ All notable changes to MetalTreeShap are documented here. The project follows
 
 ### Fixed
 
+- External-review batch: fixture materialization refuses ancestor/descendant
+  source/output overlap (`--force` could previously delete the source fixture before
+  reading it) by comparing filesystem identity, so case-variant spellings on
+  case-insensitive APFS cannot bypass the guard; paths.csv fixtures must carry
+  explicit meta intercepts and group counts; multiclass workload generation refuses
+  the ambiguous classes == features shape; aliased X/phis caller buffers force the
+  input through staging so the GPU
+  output prefill cannot corrupt results; the deterministic scratch budget is a strict
+  retained cap across both scratch buffers even when model shapes change; the XGBoost
+  compatibility CI matrix pins a Python each release supports (3.3.0 needs >= 3.12);
+  `normalize_shap_values` refuses the ambiguous classes == features layout instead of
+  silently guessing; all three CLIs now REQUIRE explicit intercepts (a silent zero
+  default hid real bias errors); CLI/benchmark status output no longer forces the lazy
+  deterministic-plan build onto atomic runs; `python -m pytest` collects the test tree
+  (script-style suites self-skip with instructions); and `WritePhis` uses full
+  round-trip precision per element type instead of 12 significant digits.
 - Robustness batch from the repository audit: the native explainer no longer holds the
   GIL through shader compilation, preprocessing, and model upload; using an explainer in
   a forked child raises a clear `RuntimeError` instead of crashing in the Metal driver;
