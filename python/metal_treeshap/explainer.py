@@ -114,6 +114,37 @@ def _checked_array(value: Any) -> np.ndarray:
     return array
 
 
+def _declares_object_dtype(value: Any) -> bool:
+    """Whether any declared dtype could hide arbitrary Python objects.
+
+    Inputs that declare only non-object dtypes — including extension dtypes numpy
+    cannot represent, such as pandas ``Float32`` — cannot smuggle complex scalars
+    past ``_reject_declared_complex``, so they keep the fast single-conversion path.
+    An object dtype, or an input declaring no dtypes at all, requires element
+    inspection of a lossless materialization instead (which costs seconds on large
+    frames and must stay off the common typed path).
+    """
+    declared: list[Any] = []
+    dtype = getattr(value, "dtype", None)
+    if dtype is not None:
+        declared.append(dtype)
+    dtypes = getattr(value, "dtypes", None)
+    if dtypes is not None:
+        try:
+            declared.extend(list(dtypes))
+        except TypeError:
+            return True  # unenumerable dtype metadata: fall back to inspection
+    if not declared:
+        return True
+    for column_dtype in declared:
+        try:
+            if np.dtype(column_dtype) == np.dtype(object):
+                return True
+        except (TypeError, ValueError):
+            continue  # extension dtype numpy cannot represent: typed, not object
+    return False
+
+
 def _value(element: Any, name: str) -> Any:
     if isinstance(element, Mapping):
         return element[name]
@@ -293,22 +324,36 @@ class MetalTreeExplainer:
         # while returning an already-truncated real array from to_numpy().
         to_numpy = getattr(X, "to_numpy", None)
         if callable(to_numpy):
+            # Declared dtypes are checked first and are decisive for typed columns: an
+            # honest adapter cannot hide complex values behind a non-complex,
+            # non-object dtype, so fully-typed inputs keep the single coerced
+            # conversion below (the lossless element-scanning path cost seconds per
+            # call on large nullable frames when applied unconditionally).
             _reject_declared_complex(X)
-            # Inspect a lossless representation first.  In particular, pandas'
-            # to_numpy(dtype=float32) and similar adapters discard imaginary parts.
-            matrix = _checked_array(to_numpy())
-            # pandas nullable dtypes expose missing values as ``pd.NA`` when coerced via
-            # plain np.asarray.  Request the dense float representation explicitly while
-            # keeping pandas an optional dependency.  Numeric arrays can use the
-            # already-inspected result, avoiding a second call for polars/xarray and
-            # other duck-typed inputs.
-            if matrix.dtype == np.dtype(object):
+            if _declares_object_dtype(X):
+                # Object columns (or inputs declaring no dtypes at all) can hide
+                # complex scalars behind a real-looking coercion: inspect a lossless
+                # materialization before any lossy conversion.
+                matrix = _checked_array(to_numpy())
+                if matrix.dtype == np.dtype(object):
+                    try:
+                        converted = to_numpy(dtype=np.float32, na_value=np.nan)
+                    except TypeError:
+                        pass
+                    else:
+                        matrix = _checked_array(converted)
+            else:
+                # pandas nullable dtypes expose missing values as ``pd.NA`` when
+                # coerced via plain np.asarray.  Request the dense float
+                # representation explicitly while keeping pandas an optional
+                # dependency; the cheap result check still catches an adapter whose
+                # coerced output is complex despite its declared dtypes.
                 try:
                     converted = to_numpy(dtype=np.float32, na_value=np.nan)
                 except TypeError:
-                    pass
-                else:
-                    matrix = _checked_array(converted)
+                    # polars/xarray expose to_numpy() without dtype/na_value keywords.
+                    converted = to_numpy()
+                matrix = _checked_array(converted)
         else:
             matrix = _checked_array(X)
         if isinstance(matrix, np.ma.MaskedArray):

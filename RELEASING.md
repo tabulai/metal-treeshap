@@ -20,7 +20,9 @@ not a reservation; configure the trusted publisher before the first upload.
 
 1. Update `CHANGELOG.md` and the single package version source.
 2. Run the complete local validation described in the current release-validation document.
-3. Push the release branch and wait for every required CI job to pass.
+3. Push the release branch — name it `release/<version>` so the push-triggered CI gate
+   runs (CI only triggers on pushes to `main` and `release/**`; feature branches get
+   CI through their pull request) — and wait for every required CI job to pass.
 4. Build the workflow artifacts and inspect the wheel and source distribution contents.
 5. Dispatch the release workflow with target `testpypi`. Its dependent Apple Silicon job
    installs the immutable TestPyPI wheel with `--no-deps` and runs the public API tests on

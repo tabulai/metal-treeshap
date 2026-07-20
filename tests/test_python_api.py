@@ -357,6 +357,23 @@ class MetalTreeExplainerTests(unittest.TestCase):
                     explainer.explain(complex_input)
         self.assertEqual(declared_complex.to_numpy_calls, 0)
         self.assertEqual(stateful_complex.to_numpy_calls, 2)
+
+        # Fully-typed adapters keep the fast path: exactly one coerced conversion,
+        # never the lossless element-scanning materialization (which cost seconds per
+        # call on large nullable frames when applied unconditionally).
+        class TypedSingleConversion:
+            dtype = np.dtype(np.float32)
+
+            def __init__(self):
+                self.calls: list[bool] = []
+
+            def to_numpy(self, **kwargs):
+                self.calls.append(bool(kwargs))
+                return np.zeros((2, 31), dtype=np.float32)
+
+        typed = TypedSingleConversion()
+        explainer.explain(typed)
+        self.assertEqual(typed.calls, [True])
         with tempfile.TemporaryDirectory() as directory:
             fake = Path(directory) / "fake.metallib"
             fake.write_bytes(b"not a metallib")

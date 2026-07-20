@@ -2,7 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # main plus release branches: RELEASING.md's "push the release branch and wait
+    # for every required CI job" gate depends on push-triggered runs. Feature
+    # branches get CI through their pull request (avoiding duplicate matrices).
+    branches: [main, "release/**"]
   pull_request:
   workflow_dispatch:
 

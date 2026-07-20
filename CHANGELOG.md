@@ -72,6 +72,13 @@ All notable changes to MetalTreeShap are documented here. The project follows
 
 ### Fixed
 
+- Complex-input screening no longer routes fully-typed pandas/adapter inputs through
+  the lossless element-scanning materialization: declared non-object dtypes cannot
+  hide complex scalars, so typed inputs keep the single coerced conversion (nullable
+  200K×8 frames dropped from ~3.2 s back to milliseconds) while object-dtype and
+  undeclared inputs retain the full inspection. CI push triggers include `release/**`
+  again — restricting them to `main` had silently disabled the push-triggered release
+  gate RELEASING.md documents (the branch naming convention is now written down).
 - External-review batch (two rounds): fixture materialization refuses
   ancestor/descendant source/output overlap (`--force` could previously delete the
   source fixture before reading it) by comparing filesystem identity, so case-variant
