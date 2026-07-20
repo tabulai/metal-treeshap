@@ -51,6 +51,48 @@ def assert_manifest(path: Path, *, kind: str, cols: int, groups: int) -> dict:
     return manifest
 
 
+def write_raw_fixture(
+    path: Path, *, x_csv: str, expected_csv: str, meta: dict
+) -> None:
+    path.mkdir()
+    (path / "paths.csv").write_text(
+        "path_idx,feature_idx,group,lower,upper,is_missing,zero_fraction,v\n"
+        "0,-1,0,-inf,inf,1,1.0,0.5\n"
+    )
+    (path / "X.csv").write_text(x_csv)
+    (path / "expected.csv").write_text(expected_csv)
+    (path / "meta.json").write_text(json.dumps(meta))
+
+
+def assert_fixture_rejected_without_touching_output(
+    workload_tool: str,
+    source: Path,
+    output: Path,
+    expected_error: str,
+    *extra_args: str,
+) -> None:
+    output.mkdir()
+    sentinel = output / "keep-me.txt"
+    sentinel.write_text("existing output must survive source validation\n")
+    result = subprocess.run(
+        [
+            sys.executable,
+            workload_tool,
+            "fixture",
+            str(source),
+            str(output),
+            "--force",
+            *extra_args,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0, result.stdout
+    assert expected_error in result.stderr, result.stderr
+    assert sentinel.read_text() == "existing output must survive source validation\n"
+    assert list(output.iterdir()) == [sentinel]
+
+
 def assert_power_windows(result: dict, expected_samples: int) -> None:
     """Check the UTC interval contract consumed by phase2_power.summarize_jobs."""
     started = dt.datetime.fromisoformat(result["started_utc"])
@@ -282,6 +324,364 @@ def main() -> None:
         assert bare.returncode != 0 and "intercepts" in bare.stderr
         assert not bare_out.exists(), "rejected fixture left a partial output"
         checks += 5
+
+        # Generated workloads use workload.json rather than meta.json. Both an
+        # analytic hot workload and an extracted-model stress workload remain valid
+        # fixture sources, preserve their intercepts, and tile X/oracle rows in lockstep.
+        hot = root / "hot"
+        run(
+            workload_tool,
+            "hot",
+            str(hot),
+            "--trees",
+            "2",
+            "--rows",
+            "3",
+        )
+        materialized_hot = root / "materialized-hot"
+        run(
+            workload_tool,
+            "fixture",
+            str(hot),
+            str(materialized_hot),
+            "--rows",
+            "5",
+        )
+        hot_x = (hot / "X.csv").read_text().splitlines()
+        hot_expected = (hot / "expected.csv").read_text().splitlines()
+        assert (materialized_hot / "X.csv").read_text().splitlines() == [
+            hot_x[index % 3] for index in range(5)
+        ]
+        assert (materialized_hot / "expected.csv").read_text().splitlines() == [
+            hot_expected[index % 3] for index in range(5)
+        ]
+        hot_manifest = json.loads((hot / "workload.json").read_text())
+        tiled_manifest = json.loads((materialized_hot / "workload.json").read_text())
+        assert tiled_manifest["intercepts"] == hot_manifest["intercepts"]
+        assert tiled_manifest["source_manifest_sha256"] == hashlib.sha256(
+            (hot / "workload.json").read_bytes()
+        ).hexdigest()
+
+        materialized_stress = root / "materialized-stress"
+        run(workload_tool, "fixture", str(stress), str(materialized_stress))
+        stress_manifest = json.loads((stress / "workload.json").read_text())
+        stress_copy_manifest = json.loads(
+            (materialized_stress / "workload.json").read_text()
+        )
+        assert stress_copy_manifest["intercepts"] == stress_manifest["intercepts"]
+        assert stress_copy_manifest["intercepts"] != [0.0]
+        assert "model" not in stress_copy_manifest
+        assert not (materialized_stress / "model.json").exists()
+        checks += 7
+
+        # workload.json references, not conventional filenames, are authoritative.
+        # A null expected reference must also ignore a stale expected.csv beside it.
+        referenced = root / "referenced-workload"
+        run(workload_tool, "hot", str(referenced), "--trees", "1", "--rows", "2")
+        referenced_manifest = json.loads((referenced / "workload.json").read_text())
+        (referenced / "paths.csv").rename(referenced / "custom-paths.csv")
+        (referenced / "X.csv").rename(referenced / "custom-matrix.csv")
+        referenced_manifest["paths"] = "custom-paths.csv"
+        referenced_manifest["matrix"] = "custom-matrix.csv"
+        referenced_manifest["expected"] = None
+        hashes = referenced_manifest["sha256"]
+        hashes["custom-paths.csv"] = hashes.pop("paths.csv")
+        hashes["custom-matrix.csv"] = hashes.pop("X.csv")
+        hashes.pop("expected.csv")
+        (referenced / "workload.json").write_text(json.dumps(referenced_manifest))
+        referenced_output = root / "referenced-output"
+        run(workload_tool, "fixture", str(referenced), str(referenced_output))
+        assert not (referenced_output / "expected.csv").exists()
+        assert json.loads((referenced_output / "workload.json").read_text())[
+            "expected"
+        ] is None
+        checks += 2
+
+        valid_meta = {
+            "num_groups": 1,
+            "num_features": 1,
+            "intercepts": [0.0],
+            "tolerance": 1e-3,
+        }
+
+        # X and expected rows must align before optional tiling. Independently cycling
+        # a one-row oracle over two distinct inputs silently manufactures bad goldens.
+        mismatched_rows = root / "mismatched-rows"
+        write_raw_fixture(
+            mismatched_rows,
+            x_csv="-1\n1\n",
+            expected_csv="-1,0\n",
+            meta=valid_meta,
+        )
+        assert_fixture_rejected_without_touching_output(
+            workload_tool,
+            mismatched_rows,
+            root / "mismatched-rows-output",
+            "expected attribution row count",
+        )
+
+        # Every source CSV is parsed before --force can remove an existing output.
+        ragged_x = root / "ragged-x"
+        write_raw_fixture(
+            ragged_x,
+            x_csv="1,2\n3\n",
+            expected_csv="0,0,0\n0,0,0\n",
+            meta={**valid_meta, "num_features": 2},
+        )
+        assert_fixture_rejected_without_touching_output(
+            workload_tool, ragged_x, root / "ragged-output", "ragged CSV"
+        )
+
+        wrong_width = root / "wrong-expected-width"
+        write_raw_fixture(
+            wrong_width,
+            x_csv="-1\n1\n",
+            expected_csv="-1,0,99\n1,0,99\n",
+            meta=valid_meta,
+        )
+        assert_fixture_rejected_without_touching_output(
+            workload_tool,
+            wrong_width,
+            root / "wrong-width-output",
+            "expected attribution width",
+        )
+        checks += 3
+
+        # Metadata is part of the same preflight contract: invalid group counts,
+        # intercept cardinality, and non-finite intercepts cannot consume the output.
+        invalid_metadata = [
+            ({**valid_meta, "num_groups": 0}, "positive integer"),
+            ({**valid_meta, "num_groups": 4294967296}, "does not fit uint32"),
+            ({**valid_meta, "intercepts": [0.0, 1.0]}, "intercept count"),
+            ({**valid_meta, "intercepts": [float("nan")]}, "must be finite"),
+        ]
+        for index, (bad_meta, expected_error) in enumerate(invalid_metadata):
+            bad_source = root / f"invalid-metadata-{index}"
+            write_raw_fixture(
+                bad_source,
+                x_csv="1\n",
+                expected_csv="0,0\n",
+                meta=bad_meta,
+            )
+            assert_fixture_rejected_without_touching_output(
+                workload_tool,
+                bad_source,
+                root / f"invalid-metadata-output-{index}",
+                expected_error,
+            )
+        checks += len(invalid_metadata)
+
+        too_many_rows = root / "too-many-output-rows"
+        write_raw_fixture(
+            too_many_rows,
+            x_csv="1\n",
+            expected_csv="0,0\n",
+            meta=valid_meta,
+        )
+        assert_fixture_rejected_without_touching_output(
+            workload_tool,
+            too_many_rows,
+            root / "too-many-output-rows-output",
+            "row count does not fit uint32",
+            "--rows",
+            "4294967296",
+        )
+        checks += 1
+
+        # Finite fp64 metadata can still overflow the fp32 bias column consumed by
+        # both native engines. Validate the combined path bias + intercept up front.
+        overflowing_bias = root / "overflowing-bias"
+        write_raw_fixture(
+            overflowing_bias,
+            x_csv="1\n",
+            expected_csv="0,0\n",
+            meta={**valid_meta, "intercepts": [1e39]},
+        )
+        (overflowing_bias / "paths.csv").write_text(
+            "path_idx,feature_idx,group,lower,upper,is_missing,zero_fraction,v\n"
+        )
+        assert_fixture_rejected_without_touching_output(
+            workload_tool,
+            overflowing_bias,
+            root / "overflowing-bias-output",
+            "representable as float32",
+        )
+        checks += 1
+
+        # Raw paths receive the same structural validation as native preprocessing,
+        # including invariants that deduplication could otherwise hide.
+        path_violations = [
+            (
+                "missing-root",
+                "0,0,0,-inf,inf,1,0.5,0.5\n",
+                valid_meta,
+                "missing its root",
+            ),
+            (
+                "bad-root-fraction",
+                "0,-1,0,-inf,inf,1,0.5,0.5\n",
+                valid_meta,
+                "root element must have zero_fraction == 1.0",
+            ),
+            (
+                "unsatisfiable-merge",
+                "0,0,0,-inf,0,0,0.5,0.5\n"
+                "0,0,0,0,inf,0,0.5,0.5\n"
+                "0,-1,0,-inf,inf,1,1,0.5\n",
+                valid_meta,
+                "merged split condition is unsatisfiable",
+            ),
+            (
+                "uint32-path-id",
+                "4294967296,-1,0,-inf,inf,1,1,0.5\n",
+                valid_meta,
+                "does not fit uint32",
+            ),
+        ]
+        path_header = (
+            "path_idx,feature_idx,group,lower,upper,is_missing,zero_fraction,v\n"
+        )
+        for name, body, metadata, expected_error in path_violations:
+            bad_source = root / name
+            write_raw_fixture(
+                bad_source, x_csv="1\n", expected_csv="0,0\n", meta=metadata
+            )
+            (bad_source / "paths.csv").write_text(path_header + body)
+            assert_fixture_rejected_without_touching_output(
+                workload_tool,
+                bad_source,
+                root / f"{name}-output",
+                expected_error,
+            )
+
+        too_deep = root / "too-deep"
+        deep_body = "".join(
+            f"0,{feature},0,-inf,inf,1,0.5,0.5\n" for feature in range(32)
+        ) + "0,-1,0,-inf,inf,1,1,0.5\n"
+        write_raw_fixture(
+            too_deep,
+            x_csv=",".join("0" for _ in range(32)) + "\n",
+            expected_csv=",".join("0" for _ in range(33)) + "\n",
+            meta={**valid_meta, "num_features": 32},
+        )
+        (too_deep / "paths.csv").write_text(path_header + deep_body)
+        assert_fixture_rejected_without_touching_output(
+            workload_tool, too_deep, root / "too-deep-output", "depth limit"
+        )
+        checks += len(path_violations) + 1
+
+        # Python's int/float accept underscores and doubles above float32 range; the
+        # native CSV readers reject both, so materialization must not bless them.
+        numeric_violations = [
+            ("underscored-matrix", "1_0\n", "0,0\n", None, "invalid matrix value"),
+            ("overflowing-matrix", "1e39\n", "0,0\n", None, "overflowing float32"),
+            (
+                "overflowing-expected",
+                "1\n",
+                "1e39,0\n",
+                None,
+                "overflowing float32",
+            ),
+            (
+                "underscored-path-id",
+                "1\n",
+                "0,0\n",
+                "1_0,-1,0,-inf,inf,1,1,0.5\n",
+                "invalid path_idx",
+            ),
+        ]
+        for name, x_csv, expected_csv, path_body, expected_error in numeric_violations:
+            bad_source = root / name
+            write_raw_fixture(
+                bad_source,
+                x_csv=x_csv,
+                expected_csv=expected_csv,
+                meta=valid_meta,
+            )
+            if path_body is not None:
+                (bad_source / "paths.csv").write_text(path_header + path_body)
+            assert_fixture_rejected_without_touching_output(
+                workload_tool,
+                bad_source,
+                root / f"{name}-output",
+                expected_error,
+            )
+        checks += len(numeric_violations)
+
+        # The native intercept parser broadcasts one explicit value across groups.
+        singleton = root / "singleton-intercept"
+        write_raw_fixture(
+            singleton,
+            x_csv="1\n",
+            expected_csv="0,0,0,0\n",
+            meta={**valid_meta, "num_groups": 2, "intercepts": [0.25]},
+        )
+        (singleton / "paths.csv").write_text(
+            path_header
+            + "0,-1,0,-inf,inf,1,1,0.5\n"
+            + "1,-1,1,-inf,inf,1,1,-0.25\n"
+        )
+        singleton_output = root / "singleton-output"
+        run(workload_tool, "fixture", str(singleton), str(singleton_output))
+        assert json.loads((singleton_output / "workload.json").read_text())[
+            "intercepts"
+        ] == [0.25, 0.25]
+        checks += 1
+
+        # Every digest in a generated workload is authoritative and checked before an
+        # existing --force target is touched.
+        tampered = root / "tampered-workload"
+        run(workload_tool, "hot", str(tampered), "--trees", "1", "--rows", "1")
+        with (tampered / "X.csv").open("a") as target:
+            target.write("123\n")
+        assert_fixture_rejected_without_touching_output(
+            workload_tool,
+            tampered,
+            root / "tampered-output",
+            "SHA-256 mismatch",
+        )
+        checks += 1
+
+        # If the final staging->destination rename fails after the old output has been
+        # backed up, rollback restores the old directory byte-for-byte.
+        import phase2_workloads  # noqa: E402
+
+        rollback_output = root / "rollback-output"
+        rollback_output.mkdir()
+        rollback_sentinel = rollback_output / "keep-me.txt"
+        rollback_sentinel.write_text("old output\n")
+        real_replace = phase2_workloads.os.replace
+        replace_calls = 0
+
+        def fail_staging_swap(source, destination):
+            nonlocal replace_calls
+            replace_calls += 1
+            if replace_calls == 2:
+                raise OSError("injected staging swap failure")
+            return real_replace(source, destination)
+
+        phase2_workloads.os.replace = fail_staging_swap
+        try:
+            try:
+                phase2_workloads.materialize_fixture(
+                    argparse.Namespace(
+                        source=str(singleton),
+                        output=str(rollback_output),
+                        rows=0,
+                        name=None,
+                        force=True,
+                    )
+                )
+            except OSError as error:
+                assert "injected staging swap failure" in str(error)
+            else:
+                raise AssertionError("injected staging swap unexpectedly succeeded")
+        finally:
+            phase2_workloads.os.replace = real_replace
+        assert rollback_sentinel.read_text() == "old output\n"
+        assert list(rollback_output.iterdir()) == [rollback_sentinel]
+        assert not list(root.glob(".rollback-output.*"))
+        checks += 1
 
         # Optional SHAP absence/disable is a successful, structured skip.
         disabled = root / "shap-disabled.json"

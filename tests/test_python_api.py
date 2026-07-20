@@ -13,26 +13,57 @@ from pathlib import Path
 
 import numpy as np
 
+ROOT = Path(os.environ.get("METAL_TREESHAP_SOURCE_DIR", Path(__file__).resolve().parents[1]))
+_PYTEST_INSTALLED_OPT_IN = os.environ.get("METAL_TREESHAP_TEST_INSTALLED") == "1"
+
+if __name__ != "__main__" and not _PYTEST_INSTALLED_OPT_IN:
+    import pytest
+
+    pytest.skip(
+        "installed-wheel API tests are disabled because pytest cannot prove which "
+        "checkout built a native extension; after rebuilding this checkout, set "
+        "METAL_TREESHAP_TEST_INSTALLED=1 to attest that the native binary is current",
+        allow_module_level=True,
+    )
+
 try:
+    import metal_treeshap
     from metal_treeshap import MetalTreeExplainer
+    from metal_treeshap import explainer as _installed_explainer
     from metal_treeshap.explainer import _require_native
 
     # A source checkout imports successfully with the native extension deliberately
     # absent (_native is None); detect that too, not just an ImportError.
     _require_native()
 except (ImportError, RuntimeError):
-    if __name__ != "__main__":  # pytest without a usable wheel: skip, don't error
-        import pytest
-
-        pytest.skip(
-            "metal-treeshap with its native extension is not installed; build and "
-            "install the wheel first (see README)",
-            allow_module_level=True,
-        )
+    # Direct runs and explicit pytest opt-ins are assertions that a usable, freshly
+    # built wheel exists.  Missing native code must fail those assertions, not skip.
     raise
 
 
-ROOT = Path(os.environ.get("METAL_TREESHAP_SOURCE_DIR", Path(__file__).resolve().parents[1]))
+def _verify_installed_sources_match_checkout() -> None:
+    """Verify inspectable wheel assets; the opt-in attests native-code freshness."""
+    installed_package = Path(metal_treeshap.__file__).resolve().parent
+    source_package = ROOT / "python" / "metal_treeshap"
+    pairs = (
+        (source_package / "__init__.py", installed_package / "__init__.py"),
+        (source_package / "explainer.py", Path(_installed_explainer.__file__)),
+        (ROOT / "tools" / "extract_paths.py",
+         installed_package / "_extract_paths.py"),
+        (ROOT / "shaders" / "treeshap.metal",
+         installed_package / "treeshap.metal"),
+    )
+    for source, installed in pairs:
+        if not installed.is_file():
+            raise RuntimeError(f"installed file is missing: {installed}")
+        if installed.read_bytes() != source.read_bytes():
+            raise RuntimeError(
+                f"installed {installed.name} is stale; rebuild and reinstall the "
+                "wheel from this checkout"
+            )
+
+
+_verify_installed_sources_match_checkout()
 
 
 def load_path_records(path: Path) -> list[dict[str, object]]:
@@ -265,9 +296,67 @@ class MetalTreeExplainerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-NaN"):
             MetalTreeExplainer.from_paths(bad_bounds, **kwargs)
         explainer = MetalTreeExplainer.from_paths(records, **kwargs)
-        with self.assertRaisesRegex(TypeError, "complex"):
-            # An unsafe cast would silently discard the imaginary parts.
-            explainer.explain(np.zeros((2, 31), dtype=np.complex64))
+        complex_matrix = np.zeros((2, 31), dtype=np.complex64)
+        object_with_nested_complex = np.zeros((2, 31), dtype=object)
+        object_with_nested_complex[0, 0] = np.array(1.0 + 2.0j)
+
+        class DeclaredComplexLossyFirst:
+            dtype = np.dtype(np.complex64)
+
+            def __init__(self):
+                self.to_numpy_calls = 0
+
+            def to_numpy(self, **kwargs):
+                self.to_numpy_calls += 1
+                return complex_matrix.real.astype(np.float32)
+
+        declared_complex = DeclaredComplexLossyFirst()
+
+        class RealObjectThenComplex:
+            def __init__(self):
+                self.to_numpy_calls = 0
+
+            def to_numpy(self, **kwargs):
+                self.to_numpy_calls += 1
+                if kwargs:
+                    return complex_matrix
+                return complex_matrix.real.astype(object)
+
+        stateful_complex = RealObjectThenComplex()
+        complex_inputs = [
+            ("ndarray", complex_matrix),
+            ("masked", np.ma.MaskedArray(complex_matrix, mask=np.zeros_like(
+                complex_matrix, dtype=bool))),
+            ("nested-0d-object", object_with_nested_complex),
+            ("declared-complex", declared_complex),
+            ("stateful-to-numpy", stateful_complex),
+        ]
+
+        class ComplexToNumpy:
+            def to_numpy(self, **kwargs):
+                if kwargs:
+                    # This simulates adapters whose dtype= conversion would silently
+                    # discard the imaginary component if called before inspection.
+                    return complex_matrix.real.astype(np.float32)
+                return complex_matrix
+
+        complex_inputs.append(("complex-to-numpy", ComplexToNumpy()))
+        try:
+            import pandas as pd
+        except ImportError:
+            pass
+        else:
+            complex_inputs.append(("pandas-complex", pd.DataFrame(complex_matrix)))
+            pandas_object = pd.DataFrame(np.zeros((2, 31), dtype=object))
+            pandas_object.iat[0, 0] = np.array(1.0 + 2.0j)
+            complex_inputs.append(("pandas-nested-object", pandas_object))
+
+        for label, complex_input in complex_inputs:
+            with self.subTest(input_type=label):
+                with self.assertRaisesRegex(TypeError, "complex"):
+                    explainer.explain(complex_input)
+        self.assertEqual(declared_complex.to_numpy_calls, 0)
+        self.assertEqual(stateful_complex.to_numpy_calls, 2)
         with tempfile.TemporaryDirectory() as directory:
             fake = Path(directory) / "fake.metallib"
             fake.write_bytes(b"not a metallib")

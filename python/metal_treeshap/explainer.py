@@ -32,6 +32,88 @@ def _require_native():
     return _native
 
 
+_COMPLEX_INPUT_ERROR = (
+    "complex input is not supported; take the real part explicitly if that is intended"
+)
+
+
+def _is_complex_dtype(dtype: Any) -> bool:
+    try:
+        return bool(np.issubdtype(np.dtype(dtype), np.complexfloating))
+    except (TypeError, ValueError):
+        # Some third-party extension dtypes cannot be represented by np.dtype.
+        return False
+
+
+def _contains_nested_complex(value: Any, seen: set[int]) -> bool:
+    """Inspect containers stored inside object arrays without following cycles."""
+    if isinstance(value, (complex, np.complexfloating)):
+        return True
+    if _is_complex_dtype(getattr(value, "dtype", None)):
+        return True
+    try:
+        if np.iscomplexobj(value):
+            return True
+    except (TypeError, ValueError):
+        pass
+
+    if isinstance(value, np.ndarray):
+        if value.dtype != np.dtype(object) or id(value) in seen:
+            return False
+        seen.add(id(value))
+        return any(_contains_nested_complex(item, seen) for item in value.flat)
+    if isinstance(value, (list, tuple)):
+        if id(value) in seen:
+            return False
+        seen.add(id(value))
+        return any(_contains_nested_complex(item, seen) for item in value)
+    if isinstance(value, Mapping):
+        if id(value) in seen:
+            return False
+        seen.add(id(value))
+        return any(_contains_nested_complex(item, seen) for item in value.values())
+    return False
+
+
+def _reject_declared_complex(value: Any) -> None:
+    """Reject complex dtype metadata without materializing an array-like."""
+    dtype = getattr(value, "dtype", None)
+    if dtype is not None and _is_complex_dtype(dtype):
+        raise TypeError(_COMPLEX_INPUT_ERROR)
+
+    # DataFrame-like objects expose one dtype per column rather than a scalar dtype.
+    dtypes = getattr(value, "dtypes", None)
+    if dtypes is not None:
+        try:
+            declared_dtypes = list(dtypes)
+        except TypeError:
+            declared_dtypes = []
+        for column_dtype in declared_dtypes:
+            if _is_complex_dtype(column_dtype):
+                raise TypeError(_COMPLEX_INPUT_ERROR)
+
+
+def _reject_complex_array(array: np.ndarray) -> None:
+    """Reject complex values in one already-materialized array."""
+    if _is_complex_dtype(array.dtype):
+        raise TypeError(_COMPLEX_INPUT_ERROR)
+    if array.dtype == np.dtype(object):
+        # Object arrays can contain complex scalars without advertising a complex
+        # dtype, including nested zero-dimensional arrays.  They require element
+        # inspection, but only inputs that already need numeric conversion take this
+        # path.
+        if _contains_nested_complex(array, set()):
+            raise TypeError(_COMPLEX_INPUT_ERROR)
+
+
+def _checked_array(value: Any) -> np.ndarray:
+    """Materialize an array-like once and reject complex data in that exact result."""
+    _reject_declared_complex(value)
+    array = np.asanyarray(value)
+    _reject_complex_array(array)
+    return array
+
+
 def _value(element: Any, name: str) -> Any:
     if isinstance(element, Mapping):
         return element[name]
@@ -207,29 +289,33 @@ class MetalTreeExplainer:
 
     def explain(self, X: Any, *, keep_group_axis: bool = False) -> np.ndarray:
         """Return additive feature contributions for a 2-D dense input matrix."""
+        # Check the original object first: an adapter may advertise a complex dtype
+        # while returning an already-truncated real array from to_numpy().
         to_numpy = getattr(X, "to_numpy", None)
         if callable(to_numpy):
+            _reject_declared_complex(X)
+            # Inspect a lossless representation first.  In particular, pandas'
+            # to_numpy(dtype=float32) and similar adapters discard imaginary parts.
+            matrix = _checked_array(to_numpy())
             # pandas nullable dtypes expose missing values as ``pd.NA`` when coerced via
             # plain np.asarray.  Request the dense float representation explicitly while
-            # keeping pandas an optional dependency.
-            try:
-                matrix = to_numpy(dtype=np.float32, na_value=np.nan)
-            except TypeError:
-                # polars/xarray expose to_numpy() without dtype/na_value keywords;
-                # their plain conversion is dense and the coercion below handles dtype.
-                matrix = to_numpy()
+            # keeping pandas an optional dependency.  Numeric arrays can use the
+            # already-inspected result, avoiding a second call for polars/xarray and
+            # other duck-typed inputs.
+            if matrix.dtype == np.dtype(object):
+                try:
+                    converted = to_numpy(dtype=np.float32, na_value=np.nan)
+                except TypeError:
+                    pass
+                else:
+                    matrix = _checked_array(converted)
         else:
-            matrix = X
+            matrix = _checked_array(X)
         if isinstance(matrix, np.ma.MaskedArray):
             # np.asarray would silently drop the mask and expose the backing storage;
             # a masked entry means "missing", which is NaN in the XGBoost contract.
             matrix = matrix.astype(np.float32).filled(np.nan)
         matrix = np.asarray(matrix)
-        if np.issubdtype(matrix.dtype, np.complexfloating):
-            # The unsafe cast below would silently discard imaginary parts.
-            raise TypeError(
-                "complex input is not supported; take the real part explicitly if "
-                "that is intended")
         if matrix.ndim != 2:
             raise ValueError("X must be a 2-D array")
         if matrix.shape[1] != self.num_features:

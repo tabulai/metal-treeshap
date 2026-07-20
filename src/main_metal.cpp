@@ -224,12 +224,15 @@ int main(int argc, char** argv) {
     // Deterministic metadata builds lazily on first deterministic use; querying the
     // cell count here must not force that build (or its possible failure) onto a run
     // that never needed it — including root-only deterministic runs, whose Explain
-    // fast path skips the build entirely. num_partials is eager and always exact;
-    // when the plan was never built the true cell count is either genuinely zero
-    // (no partials) or unreported.
+    // fast path skips the build entirely. num_partials is eager and always exact,
+    // so zero partials proves that the active-cell count is also zero; otherwise
+    // the stable "unavailable" sentinel distinguishes an unbuilt plan from a
+    // measured count.
+    const size_t det_num_partials = model->deterministic_num_partials();
     const bool det_stats_built = model->deterministic_ready();
-    const size_t det_active_cells =
-        det_stats_built ? model->deterministic_num_active_cells() : 0;
+    const std::string det_active_cells =
+        det_stats_built ? std::to_string(model->deterministic_num_active_cells())
+                        : (det_num_partials == 0 ? "0" : "unavailable");
     std::fprintf(stderr,
                  "[metal_cli] kernel=%s (%s) rows=%zu cols=%zu groups=%zu bins=%zu "
                  "dispatched=%d zero_copy=%d output_zero_copy=%d upload=%.4fs "
@@ -237,7 +240,7 @@ int main(int argc, char** argv) {
                  "total=%.4fs accumulation=%s threads_per_tg=%u model_storage=%s "
                  "atomic_tile_rows_requested=%zu atomic_tile_rows=%zu atomic_tiles=%zu "
                  "atomic_writes_per_row=%zu simdgroup_writes_per_row=%zu "
-                 "deterministic_partials_per_row=%zu deterministic_active_cells=%zu "
+                 "deterministic_partials_per_row=%zu deterministic_active_cells=%s "
                  "deterministic_scratch_mib=%zu deterministic_scratch_used=%zu "
                  "deterministic_scratch_capacity=%zu "
                  "deterministic_tile_rows=%zu deterministic_tiles=%zu\n",
@@ -253,8 +256,8 @@ int main(int argc, char** argv) {
                  model_storage == ModelStorageMode::kShared ? "shared" : "private",
                  atomic_tile_rows, tm.atomic_tile_rows, tm.atomic_tiles,
                  model->atomic_writes_per_row(), model->simdgroup_writes_per_row(),
-                 model->deterministic_num_partials(),
-                 det_active_cells, deterministic_scratch_mib,
+                 det_num_partials,
+                 det_active_cells.c_str(), deterministic_scratch_mib,
                  tm.deterministic_scratch_bytes,
                  tm.deterministic_scratch_capacity_bytes,
                  tm.deterministic_tile_rows, tm.deterministic_tiles);
