@@ -5,8 +5,9 @@
 `metal-treeshap` runs the TreeSHAP algorithm — the same exact attribution method behind
 XGBoost's `pred_contribs` and the `shap` package's tree explainer — as Metal compute
 kernels on Apple Silicon. Compile a model once, then explain batches of rows at GPU
-speed: on an M4 Max, sustained paired benchmarks measure **14–19× over 16-thread
-XGBoost CPU** on the same models and inputs, with elementwise agreement to ~1e-5.
+speed: on an M4 Max, paired benchmarks measure **10–100× over 16-thread XGBoost CPU**
+depending on model shape and batch size, on the same models and inputs, with
+elementwise agreement to ~1e-5.
 
 ```python
 from metal_treeshap import MetalTreeExplainer
