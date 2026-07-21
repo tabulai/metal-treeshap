@@ -46,7 +46,13 @@ for the design.
 
 ## Installation
 
-The package is not on PyPI yet. Build the wheel from a source checkout:
+Install the published wheel from PyPI:
+
+```bash
+python3 -m pip install metal-treeshap
+```
+
+To build the wheel from a source checkout instead:
 
 ```bash
 git clone https://github.com/tabulai/metal-treeshap.git
