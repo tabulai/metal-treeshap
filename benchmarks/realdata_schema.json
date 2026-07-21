@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tunguz/metal-treeshap/benchmarks/realdata_schema.json",
+  "$id": "https://github.com/tabulai/metal-treeshap/benchmarks/realdata_schema.json",
   "title": "MetalTreeShap paired real-data benchmark suite",
   "type": "object",
   "required": ["schema", "generated_utc", "cells", "results"],

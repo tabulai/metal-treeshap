@@ -30,10 +30,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/tunguz/metal-treeshap"
-Documentation = "https://github.com/tunguz/metal-treeshap#readme"
-Issues = "https://github.com/tunguz/metal-treeshap/issues"
-Source = "https://github.com/tunguz/metal-treeshap"
+Homepage = "https://github.com/tabulai/metal-treeshap"
+Documentation = "https://github.com/tabulai/metal-treeshap#readme"
+Issues = "https://github.com/tabulai/metal-treeshap/issues"
+Source = "https://github.com/tabulai/metal-treeshap"
 
 [project.optional-dependencies]
 xgboost = ["xgboost>=2.0"]

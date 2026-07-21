@@ -13,13 +13,10 @@ numbers.
 
 ## Setup
 
-Apple Silicon Mac (macOS 13+). Build and install the wheel from the repository root
-(the package is not on PyPI yet), then add the notebook dependencies:
+Apple Silicon Mac (macOS 13+). Install the published wheel and notebook dependencies:
 
 ```bash
-python3 -m pip install build
-python3 -m build --wheel
-python3 -m pip install dist/metal_treeshap-*.whl
+python3 -m pip install metal-treeshap
 python3 -m pip install jupyter matplotlib pandas "xgboost>=2.0"
 jupyter lab examples/
 ```
