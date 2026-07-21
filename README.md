@@ -1,194 +1,172 @@
 # metal-treeshap
 
-An exact TreeSHAP implementation for Apple GPUs — a Metal port of NVIDIA's
-[GPUTreeShap](https://github.com/rapidsai/gputreeshap) (Mitchell, Frank & Holmes,
-[arXiv:2010.13972](https://arxiv.org/abs/2010.13972)) from CUDA to Metal.
-Apache-2.0, with attribution to upstream (see LICENSE, NOTICE).
+**Exact SHAP values for XGBoost models, computed on Apple GPUs.**
 
-Start with these documents in `docs/`:
+`metal-treeshap` runs the TreeSHAP algorithm — the same exact attribution method behind
+XGBoost's `pred_contribs` and the `shap` package's tree explainer — as Metal compute
+kernels on Apple Silicon. Compile a model once, then explain batches of rows at GPU
+speed: on an M4 Max, sustained paired benchmarks measure **14–19× over 16-thread
+XGBoost CPU** on the same models and inputs, with elementwise agreement to ~1e-5.
 
-1. **[docs/01-cuda-acceleration-assessment.md](docs/01-cuda-acceleration-assessment.md)** — how
-   the CUDA implementation actually accelerates TreeSHAP (path decomposition, SIMD-cooperative
-   extend/unwind recurrences, bin packing, mixed precision), from a close read of
-   `gpu_treeshap.h`.
-2. **[docs/02-apple-gpu-project-proposal.md](docs/02-apple-gpu-project-proposal.md)** — the
-   project plan for the Apple GPU port: CUDA→Metal mapping, the fp64 problem and accumulation
-   strategies, compiled-model architecture, phased milestones, benchmark plan, risks.
-3. **[docs/03-phase2-deterministic-design.md](docs/03-phase2-deterministic-design.md)** — the
-   bounded-memory, fixed-order two-stage accumulation path.
-4. **[docs/04-phase2-performance-results.md](docs/04-phase2-performance-results.md)** — the
-   reproducible M4 Max tuning, accuracy, repeatability, CPU comparison, and limitations.
-5. **[docs/05-phase21-production-results.md](docs/05-phase21-production-results.md)** — the
-   atomic-tiling result, precise Kahan reducer, wide/multiclass measurements, Python API,
-   optional SHAP comparison, and final production defaults.
-6. **[docs/06-v0.1-release-validation.md](docs/06-v0.1-release-validation.md)** — the v0.1
-   compatibility, wheel, Metal, and release-automation gates plus remaining external checks.
-7. **[docs/07-local-program-completion.md](docs/07-local-program-completion.md)** — the bounded
-   real-data matrix, final API/benchmark hardening, local completion boundary, and evidence scan.
+```python
+from metal_treeshap import MetalTreeExplainer
 
-## Status (Phase 2.1 production path complete on M4 Max)
-
-The portable pipeline, checked-in metal-cpp runner, and Metal kernel pass the local M4 Max
-differential suite in all three accumulation modes. On the checked-in 500-tree/depth-8 stress
-generator, 8,192 rows take **0.6206 s** with the selected Metal configuration versus
-**12.0345 s** for 16-thread XGBoost CPU `pred_contribs`: **19.39× steady-state API speedup**.
-Adding separately measured setup components gives a **6.72× derived setup-plus-call estimate**,
-not direct model-to-first-answer latency. These figures apply to the documented M4 Max workload,
-not every model or Apple GPU; see the Phase 2 results for raw sample dispersion and limitations.
-Phase 2.1 additionally measured **22.63×** on a 256-feature regression workload and **21.98×**
-on an eight-class workload. A blocked finalist experiment did not reproduce a benefit from
-atomic row tiling, so full dispatch remains the default. Precise Kahan reduction lowers the
-deterministic stress error about 10.8×, and a tested nanobind wheel now exposes
-`MetalTreeExplainer`.
-
-| component | file(s) | state |
-|---|---|---|
-| Path representation + 32-B GPU layout | `include/metal_treeshap/paths.h` | **built & tested** (any platform) |
-| Host preprocessing + two-layer validation (raw checks BEFORE dedup so merging can't launder malformed input, structural checks after; BFD/FFD/NF packing, sort, segments, fp64 bias) | `include/metal_treeshap/preprocess.h` | **built & tested**, ASAN/UBSAN clean locally |
-| Scalar reference oracle (lane-faithful float recurrences, fp64/fp32 accumulation, order-shuffle mode) | `reference/reference_shap.h` | **built & tested vs xgboost** |
-| XGBoost extractor: raw-JSON based — `tree_info` groups, vector base_score intercepts (3.1+), empirically-verified objective link table with explicit allowlist, legacy and 3.3+ flattened DART `weight_drop`, categorical/multi-target rejection; works from a model file without xgboost | `tools/extract_paths.py` | **tested on xgboost 2.0.3, 3.1.2, and 3.3.0**, incl. `num_parallel_tree`, both DART layouts, and 9 objective-link cases |
-| Golden tests (16 cases on 2.0/3.1, 17 on 3.3, plus rejection check; **non-mutating** — fixtures/results only change under explicit flags) | `tests/test_vs_xgboost.py` → `tests/RESULTS.md` | **passing on XGBoost 2.0.3, 3.1.2, and 3.3.0** at the 1e-3 gate |
-| Property-based additivity tests (stumps, structurally guaranteed depth-31/32-element groups, deterministic comb, repeated features, ~1e-4 covers, NaNs, independent exact-Shapley vector oracle) | `tests/test_property_additivity.cpp` | **passing**, incl. asserted 32-lane group execution |
-| Frozen fixtures replayable without xgboost (7 model cases, including XGBoost 3.3 DART and a real missing-only path, plus synthetic `deep31` 32-lane comb) | `tests/fixtures/*/`, `tests/test_fixture.py` | **all 8 passing** |
-| Metal kernels: atomic, SIMD pre-aggregation, deterministic partials+precise Kahan reduction | `shaders/treeshap.metal` | **validated on M4 Max**: Metal 3 compile, width 32, lane-31, missing-only NaN routing, every frozen fixture ≤ 6.51e-6; separate fast recurrence and precise reducer pipelines |
-| metal-cpp compiled-model host: persistent shared/private model buffers, three accumulation modes, bounded private deterministic scratch, atomic/deterministic row tiling, timing and tuning controls, hardened ownership/shape checks | `src/metal_host.hpp` | **locally built and exercised on M4 Max** across all fixtures and modes; deterministic output bit-stable across 100 repeats and tile sizes |
-| Metal fixture runner (repository-reproducible validation; runtime-compiles the shader when the offline toolchain is absent) | `src/main_metal.cpp`, Metal CTests | **passing locally on M4 Max**; pinned metal-cpp headers are included |
-| Persistent benchmark, hashed stress/wide/multiclass generators, blocked-shuffle runner, CPU/SHAP/power tooling, schemas and raw results | `src/main_benchmark.cpp`, `benchmarks/phase2_*`, `benchmarks/results/` | **verified**; 19.39× original stress result, 22× wide/multiclass results; privileged power trace still pending |
-| Pip-installable Python API | `pyproject.toml`, `bindings/python_module.cpp`, `python/metal_treeshap/` | **wheel built and tested on M4 Max**; JSON/dict/Booster/sklearn sources, NumPy output, packaged extractor and shader |
-
-## Quickstart (any platform — the portable core)
-
-```bash
-cmake -B build && cmake --build build      # add -DMETAL_TREESHAP_SANITIZE=ON for ASAN+UBSAN
-./build/test_preprocess                                  # unit tests
-./build/test_property                                    # additivity property tests
-pip install "xgboost>=2.0" numpy
-python tests/test_vs_xgboost.py ./build/reference_cli    # golden tests (non-mutating)
-python tests/test_fixture.py    ./build/reference_cli    # frozen fixtures (no xgboost needed)
+explainer = MetalTreeExplainer.from_xgboost("model.json")  # compile once
+phis = explainer.shap_values(X)                            # explain many, fast
 ```
 
-Fixtures and `tests/RESULTS.md` are regenerated only explicitly:
-`python tests/test_vs_xgboost.py ./build/reference_cli --update-fixtures --write-results`
-and `python tools/make_deep_fixture.py ./build/reference_cli` for the synthetic deep31 case.
+The output is a NumPy array with the standard contract: one column per feature plus a
+final bias column, and each row sums to the model's margin prediction (*local
+accuracy*). Single-output models return `(rows, features + 1)`; multiclass models
+return `(rows, classes, features + 1)`.
 
-Supported model sources: XGBoost `gbtree` and `dart` (weight_drop applied),
-`num_parallel_tree` ≥ 1, missing values, and exactly these objectives (each link verified
-empirically end-to-end against `pred_contribs`): identity-link `reg:squarederror`,
-`reg:squaredlogerror`, `reg:absoluteerror`, `reg:quantileerror`, `reg:pseudohubererror`,
-`binary:logitraw`, `binary:hinge`, `multi:softmax`, `multi:softprob`; logit-link
-`binary:logistic`, `reg:logistic`; log-link `count:poisson`, `reg:gamma`, `reg:tweedie`.
-Anything else (survival, ranking, multi-target, categorical splits) is **rejected with a
-clear error** rather than silently mis-linked. Verified against xgboost 2.0.3, 3.1.2,
-and 3.3.0.
+## Why this exists
 
-## Quickstart (Apple Silicon — Metal differential run)
+Exact TreeSHAP is expensive — its cost grows with rows × trees × depth², so explaining
+a large ensemble over a real dataset can take minutes on a CPU. NVIDIA solved this for
+CUDA with [GPUTreeShap](https://github.com/rapidsai/gputreeshap) (Mitchell, Frank &
+Holmes, [arXiv:2010.13972](https://arxiv.org/abs/2010.13972)), which decomposes trees
+into root-to-leaf paths and evaluates them cooperatively across GPU warps. That
+acceleration never reached Macs, because CUDA doesn't run there.
 
-```bash
-# The pinned Apple metal-cpp headers are included in third_party/metal-cpp.
-cmake -B build && cmake --build build
-# CMake probe-compiles a tiny kernel to detect the OFFLINE Metal toolchain; without it
-# (Command Line Tools only), metal_cli runtime-compiles shaders/treeshap.metal instead —
-# the path exercised by the local M4 Max validation.
-ctest --test-dir build -R 'metal|fixture' --output-on-failure
-# Direct equivalent for all fixtures at one row-bank setting:
-python tests/test_fixture.py build/reference_cli --metal-cli build/metal_cli \
-  --metal-rows-per-simdgroup 256
-```
+`metal-treeshap` is a from-scratch Metal port of that algorithm for Apple GPUs. It
+keeps GPUTreeShap's path decomposition and cooperative evaluation strategy, adapts them
+to Metal's SIMD-groups and unified memory, and adds an accuracy-focused execution mode
+that Apple's fp32-only GPUs make necessary. The portable core is continuously verified
+against XGBoost's own attribution output. See [docs/how-it-works.md](docs/how-it-works.md)
+for the design.
 
-The production throughput default is plain float atomics, shared model storage, 256 rows per
-SIMD-group, 256 threads per threadgroup, and full dispatch (`atomic_tile_rows=0`). Use
-`--accumulation deterministic` for precise-Kahan, fixed-order, bit-repeatable output (256 MiB
-scratch budget by default), or `--accumulation simdgroup` to test explicit pre-aggregation on
-another GPU/model. No model-shape auto-switch is enabled because atomics won every measured
-workload family.
+## Requirements
 
-## Python `MetalTreeExplainer`
+- Apple Silicon Mac (M1 or newer), macOS 13+
+- Python 3.10+ and NumPy (pandas optional)
+- Xcode Command Line Tools for building the wheel — the offline Metal shader
+  toolchain is **not** required; kernels compile at runtime
 
-The package is not yet published to PyPI (see RELEASING.md). Until that lands, build the
-wheel from a source checkout on Apple Silicon:
+## Installation
+
+The package is not on PyPI yet. Build the wheel from a source checkout:
 
 ```bash
+git clone https://github.com/tabulai/metal-treeshap.git
+cd metal-treeshap
 python3 -m pip install build
 python3 -m build --wheel
 python3 -m pip install dist/metal_treeshap-*.whl
 ```
 
+## Usage
+
+`from_xgboost` accepts a live `xgboost.Booster`, an sklearn-style wrapper, a saved
+JSON model path, raw JSON text/bytes (`booster.save_raw("json")`), or a parsed dict.
+Loading a saved model does **not** require xgboost to be installed.
+
 ```python
+import xgboost as xgb
 from metal_treeshap import MetalTreeExplainer
 
-explainer = MetalTreeExplainer.from_xgboost("model.json")
-phis = explainer.shap_values(X)
+booster = xgb.train(params, dtrain, num_boost_round=500)
+explainer = MetalTreeExplainer.from_xgboost(booster)
+
+phis = explainer.shap_values(X_test)     # also: explainer.explain(X), explainer(X)
+assert phis.shape == (len(X_test), X_test.shape[1] + 1)
 ```
 
-`from_paths` is also available and requires explicit per-group intercepts. The package targets
-macOS 13+ on ARM64 and runtime-compiles the bundled shader when an offline metallib is absent.
-`shap_values(X)`, `explain(X)`, and calling the explainer directly have the same output contract.
+**Inputs.** NumPy arrays and pandas DataFrames are accepted; any numeric dtype and
+memory layout is converted as needed. DataFrame columns are consumed **by position** —
+pass them in training order. `NaN` means missing and routes exactly as XGBoost routes
+it; pandas nullable values (`pd.NA`) and masked arrays convert to `NaN`. Complex input
+is rejected rather than silently truncated.
 
-Executed example notebooks — including a paired CPU-vs-GPU benchmark of XGBoost's
-built-in `pred_contribs` against the Metal engine — live in
-[`examples/`](examples/README.md).
-
-NumPy arrays and pandas `DataFrame` objects are accepted. DataFrame columns are consumed by
-position: pass them in the same feature order used to train the model. `MetalTreeExplainer` does
-not currently reorder columns against XGBoost feature names. Nullable pandas values are converted
-to `NaN` for XGBoost-compatible missing routing. The result is a NumPy array.
-Single-output models return `(rows, features + 1)`; multiclass models return
-`(rows, classes, features + 1)`, and the final entry on each feature axis is the bias term.
+**Works with the `shap` package.** Wrap the output in a `shap.Explanation` and every
+standard plot works, drawn from GPU-computed values:
 
 ```python
-# pandas is optional; metal-treeshap itself depends only on NumPy.
-feature_order = ["age", "income", "tenure"]
-phis = explainer.explain(frame.loc[:, feature_order])
+import shap
+
+explanation = shap.Explanation(
+    values=phis[:, :-1], base_values=phis[:, -1], data=X_test,
+    feature_names=feature_names,
+)
+shap.plots.beeswarm(explanation)
 ```
 
-## Reproduce the Phase 2 benchmark
+**Supported models.** XGBoost `gbtree` and `dart` boosters (both weight-drop layouts),
+`num_parallel_tree` ≥ 1, missing values, and exactly these objectives — each link
+verified end-to-end against `pred_contribs`: `reg:squarederror`,
+`reg:squaredlogerror`, `reg:absoluteerror`, `reg:quantileerror`,
+`reg:pseudohubererror`, `binary:logitraw`, `binary:hinge`, `multi:softmax`,
+`multi:softprob`, `binary:logistic`, `reg:logistic`, `count:poisson`, `reg:gamma`,
+`reg:tweedie`. Anything else — survival, ranking, multi-target, categorical splits —
+is **rejected with a clear error** rather than silently mis-attributed. Verified
+against xgboost 2.0.3, 3.1.2, and 3.3.0.
+
+**Introspection.** `explainer.last_timings` reports what the most recent call did
+(GPU time, zero-copy state, dispatch shape); `explainer.trim_buffers()` releases the
+persistent buffers a long-lived explainer retains after a peak batch.
+
+## Execution modes
+
+| mode | behavior | when to use |
+|---|---|---|
+| `atomic` *(default)* | fastest; float atomics make reruns differ at ~1e-6 | throughput |
+| `deterministic` | fixed-order Kahan reduction; **bit-identical** reruns, tighter accuracy; ~1.8× the default mode's time | reproducible pipelines, caching, audits |
+| `simdgroup` | SIMD pre-aggregation experiment | exploring other GPUs/models |
+
+```python
+explainer = MetalTreeExplainer.from_xgboost(model, accumulation="deterministic")
+```
+
+Advanced knobs (`rows_per_simdgroup`, `threads_per_threadgroup`,
+`deterministic_scratch_mib`, `atomic_tile_rows`, `model_storage`) are keyword
+arguments on the constructors; the defaults were tuned on M4 Max. The `from_paths`
+constructor accepts pre-extracted path elements for non-XGBoost sources.
+
+## Performance
+
+Sustained, paired, randomized A/B measurements on an Apple M4 Max against 16-thread
+XGBoost 3.1.2 `pred_contribs`, identical models and inputs:
+
+| workload | model | speedup |
+|---|---|---|
+| stress | 500 trees × depth 8, 12 features, 8,192 rows | **18.5×** |
+| wide | 256 features | **14.4×** |
+| multiclass | 8 classes | **15.6×** |
+
+Figures are device- and workload-specific, not guarantees; smaller models at batch
+volume can measure considerably higher (see the executed
+[examples/](examples/README.md) notebooks). Methodology, caveats, and reproduction
+commands live in [docs/performance.md](docs/performance.md); the raw archived
+artifacts are under `benchmarks/results/`.
+
+## Examples
+
+Three executed notebooks in [`examples/`](examples/README.md): a quickstart, a paired
+CPU-vs-GPU benchmark, and a tour of the execution modes and tuning knobs.
+
+## Development
 
 ```bash
-python3 benchmarks/phase2_workloads.py stress /tmp/metal-treeshap-phase2/stress --force
-python3 benchmarks/phase2_run.py build/phase2_benchmark \
-  /tmp/metal-treeshap-phase2/stress --kernel shaders/treeshap.metal \
-  --output /tmp/metal-treeshap-phase2/results.json \
-  --rows-per-simdgroup 256,1024 --threads-per-threadgroup 64,256 \
-  --accumulations atomic,simdgroup,deterministic --atomic-tiling-sweep --rounds 3
+cmake -B build && cmake --build build     # portable core + Metal targets
+ctest --test-dir build --output-on-failure
+python3 tests/test_vs_xgboost.py build/reference_cli   # golden tests vs xgboost
 ```
 
-The upstream-shaped real-data runner trains each model once, compiles both engines once, then
-randomizes paired CPU/Metal calls within each iteration. It records raw samples, exact UTC power
-windows, model/data/output hashes, additivity, and elementwise CPU/Metal error:
+The portable C++ core (path preprocessing, CPU reference oracle) builds and tests on
+any platform; the Metal targets and differential fixture tests require Apple Silicon.
+`python -m pytest` runs the importable suites; script-style suites print their own
+invocation instructions. See [docs/how-it-works.md](docs/how-it-works.md) for the
+architecture and [RELEASING.md](RELEASING.md) for the release process.
 
-```bash
-python3 benchmarks/benchmark_mac.py \
-  --datasets adult,covtype,cal_housing,fashion_mnist \
-  --sizes small,med --nrows 10000 --niter 5 --warmup 2 \
-  --nthread 16 --device both --output realdata.json
-```
+## License and attribution
 
-The `large` cells are intentionally opt-in: upstream shapes can materialize tens of millions of
-path elements and require multi-hour runs plus several GiB of temporary memory.
-
-## Repository hygiene
-
-This directory is designed to be a standalone git repository (a `.gitignore` for build
-products is included). Do **not** commit it from a parent repository whose index may
-contain unrelated files or credentials.
-
-## How the pieces fit
-
-```
-xgboost model (or saved .json) ──tools/extract_paths.py──► paths + per-group intercepts
-                                             │  Preprocess() [host, portable, validated]
-                                             ▼
-                              dedup → validate → BFD bin-pack → sort → segments (+fp64 bias)
-                                             │
-                    ┌────────────────────────┴──────────────────────┐
-                    ▼ (any platform)                                ▼ (Apple Silicon)
-        reference/reference_shap.h                       shaders/treeshap.metal
-        scalar oracle, fp64/fp32 accum,                  atomic/SIMD/deterministic kernels,
-        shuffled-order mode                              compiled-model host (persistent buffers)
-                    │                                                │
-                    └──────── numerically matched phis ─────────────┘
-                    (golden + fixture + property + performance + wheel suites; Phase 2.1)
-```
+Apache-2.0. This project is a port of NVIDIA's
+[GPUTreeShap](https://github.com/rapidsai/gputreeshap) and retains its algorithmic
+structure (see [NOTICE](NOTICE)). The TreeSHAP algorithm is due to Lundberg, Erion &
+Lee ([arXiv:1802.03888](https://arxiv.org/abs/1802.03888)); the GPU formulation to
+Mitchell, Frank & Holmes ([arXiv:2010.13972](https://arxiv.org/abs/2010.13972)).
+Apple's [metal-cpp](https://github.com/apple/metal-cpp) headers are vendored under
+`third_party/`.
 
 ## Trademarks
 

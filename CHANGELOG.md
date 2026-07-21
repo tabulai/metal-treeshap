@@ -47,6 +47,16 @@ All notable changes to MetalTreeShap are documented here. The project follows
   `MetalTreeExplainer.from_xgboost` on the 500-tree stress model from 1.30 s to 1.09 s.
   Output order is unchanged (pinned by an exact-equivalence regression test).
 
+### Changed
+
+- The README is rewritten for users of the library as it stands — what it does, the
+  GPUTreeShap lineage, installation, usage (including `shap`-package integration),
+  execution modes, honest paired performance figures, and the Apple trademark
+  disclaimer — replacing the development-report format. The seven phase-report
+  documents under `docs/` are removed (they remain in git history) in favor of two
+  user-focused pages: `docs/how-it-works.md` (architecture and correctness strategy)
+  and `docs/performance.md` (results, methodology, tuning, and reproduction).
+
 ### Added
 
 - Trademark attribution for Metal (Apple Inc.) and XGBoost in the README and NOTICE,
