@@ -4,8 +4,8 @@
 // metal-treeshap: first-order TreeSHAP kernel for Apple GPUs.
 //
 // Port of gpu_treeshap.h's ShapKernel (CUDA) to Metal Shading Language. See
-// docs/01-cuda-acceleration-assessment.md for the algorithm and
-// docs/02-apple-gpu-project-proposal.md §5 for the CUDA->Metal mapping decisions.
+// docs/how-it-works.md for the pipeline and the CUDA->Metal mapping decisions, and
+// Mitchell, Frank & Holmes (arXiv:2010.13972) for the algorithm.
 //
 // STATUS: locally validated on an M4 Max through the checked-in metal-cpp host and CTests.
 // All seven frozen fixtures pass across atomic, SIMD-group and deterministic accumulation,

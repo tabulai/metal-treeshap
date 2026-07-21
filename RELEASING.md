@@ -19,7 +19,10 @@ not a reservation; configure the trusted publisher before the first upload.
 ## Prepare and verify
 
 1. Update `CHANGELOG.md` and the single package version source.
-2. Run the complete local validation described in the current release-validation document.
+2. Run the complete local validation: the full CTest suite (including the Metal
+   differential fixtures on Apple Silicon), the golden suite against every supported
+   XGBoost version, and the wheel/sdist checks in `ci/verify_dist.py` — the same
+   gates the CI workflow runs.
 3. Push the release branch — name it `release/<version>` so the push-triggered CI gate
    runs (CI only triggers on pushes to `main` and `release/**`; feature branches get
    CI through their pull request) — and wait for every required CI job to pass.
